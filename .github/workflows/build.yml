@@ -12,16 +12,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
-
-      - uses: gradle/actions/setup-gradle@v4
+      # Android SDK уже установлен на раннерах GitHub (ANDROID_HOME)
+      - uses: gradle/actions/setup-gradle@v5
 
       - name: Build
         env:
@@ -30,10 +29,20 @@ jobs:
           MASTER_PIN: ${{ secrets.MASTER_PIN }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          set +e
+          ./gradlew assembleRelease --no-daemon 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" != "0" ]; then
+            # ошибки компиляции — в аннотации, чтобы их было видно без полного лога
+            grep -E "^e: |What went wrong|error:" -A3 build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            tail -25 build.log | while IFS= read -r l; do echo "::warning::$l"; done
+            exit 1
+          fi
           cp app/build/outputs/apk/release/app-release.apk colony-scanner.apk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: colony-scanner-apk
           path: colony-scanner.apk
