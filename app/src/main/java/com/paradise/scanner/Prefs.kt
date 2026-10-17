@@ -11,11 +11,11 @@ class Prefs(ctx: Context) {
         set(v) = p.edit().putString("role", v).apply()
 
     var supabaseUrl: String
-        get() = p.getString("url", null) ?: BuildConfig.SUPABASE_URL
+        get() = p.getString("url", null)?.takeIf { it.isNotBlank() } ?: BuildConfig.SUPABASE_URL
         set(v) = p.edit().putString("url", v.trim()).apply()
 
     var supabaseKey: String
-        get() = p.getString("key", null) ?: BuildConfig.SUPABASE_KEY
+        get() = p.getString("key", null)?.takeIf { it.isNotBlank() } ?: BuildConfig.SUPABASE_KEY
         set(v) = p.edit().putString("key", v.trim()).apply()
 
     var pin: String
@@ -36,6 +36,11 @@ class Prefs(ctx: Context) {
     var autoScan: Boolean
         get() = p.getBoolean("auto_scan", false)
         set(v) = p.edit().putBoolean("auto_scan", v).apply()
+
+    /** Опрашивать все типы NFC (B, F, V). По умолчанию только тип A — так метки ловятся быстрее. */
+    var allTagTypes: Boolean
+        get() = p.getBoolean("all_tag_types", false)
+        set(v) = p.edit().putBoolean("all_tag_types", v).apply()
 
     val hasServer: Boolean
         get() = supabaseUrl.isNotBlank() && supabaseKey.isNotBlank()

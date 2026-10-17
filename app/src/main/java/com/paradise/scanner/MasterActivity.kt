@@ -76,6 +76,21 @@ class MasterActivity : Activity() {
         autoBtn.setOnClickListener { prefs.autoScan = !prefs.autoScan; paintAuto() }
         paintAuto()
         root.addView(autoBtn, lp().apply { topMargin = dp(8) })
+        val typesBtn = termButton("", accent) {}
+        fun paintTypes() {
+            typesBtn.text = if (prefs.allTagTypes) "ТИПЫ МЕТОК: ВСЕ (МЕДЛЕННЕЕ)" else "ТИПЫ МЕТОК: NTAG/MIFARE (БЫСТРО)"
+            styleButton(typesBtn, accent, filled = prefs.allTagTypes)
+        }
+        typesBtn.setOnClickListener {
+            prefs.allTagTypes = !prefs.allTagTypes
+            paintTypes()
+            // перезапускаем чтение с новыми настройками
+            NfcRead.disable(this, adapter)
+            NfcRead.enable(this, adapter) { onMasterTag(it) }
+        }
+        paintTypes()
+        root.addView(typesBtn, lp().apply { topMargin = dp(8) })
+        root.addView(label("Если какие-то метки перестали читаться — включите «все типы».", 11f, Pal.DIM), lp().apply { topMargin = dp(4) })
 
         // --- профиль ---
         section(root, "ПРОФИЛЬ СКАНЕРА")
@@ -172,13 +187,15 @@ class MasterActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        NfcRead.enable(this, adapter) { read ->
-            lastRead = read
-            prefs.lastCodes = read.describe()
-            readout.text = read.describe()
-            fx?.beep()
-            fx?.vibrate(40)
-        }
+        NfcRead.enable(this, adapter) { onMasterTag(it) }
+    }
+
+    private fun onMasterTag(read: TagRead) {
+        lastRead = read
+        prefs.lastCodes = read.describe()
+        readout.text = read.describe()
+        fx?.beep()
+        fx?.vibrate(40)
     }
 
     override fun onPause() {

@@ -18,7 +18,7 @@ import java.security.MessageDigest
  * Картинки скачиваются заранее, поэтому на игре интернет не нужен.
  */
 object Sync {
-    const val BUCKET = "scan-images"
+    const val BUCKET = "content-media"
     private const val PAGE = 1000
 
     class Report(val modes: Int, val tags: Int, val images: Int, val imageErrors: Int)

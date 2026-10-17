@@ -37,7 +37,7 @@ class ScanActivity : Activity() {
     private var adapter: NfcAdapter? = null
     private val ui = Handler(Looper.getMainLooper())
 
-    private lateinit var stars: StarfieldView
+    private lateinit var stars: TechBackgroundView
     private lateinit var headerPanel: LinearLayout
     private lateinit var kicker: TextView
     private lateinit var header: TextView

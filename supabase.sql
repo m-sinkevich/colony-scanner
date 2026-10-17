@@ -27,19 +27,23 @@ create table if not exists public.scan_tags (
   unique (code, scanner)
 );
 
--- Чтение для всех (приложение использует публичный ключ), запись — только из панели Supabase.
+-- Доступ по публичному ключу — как у остальных таблиц «Терминала колониста»:
+-- чтение нужно приложению, запись — панели мастера (scanner_admin.html).
 alter table public.scan_modes enable row level security;
 alter table public.scan_tags  enable row level security;
 
 drop policy if exists "scan_modes read" on public.scan_modes;
-create policy "scan_modes read" on public.scan_modes for select using (true);
+drop policy if exists "scan_modes all"  on public.scan_modes;
+create policy "scan_modes all" on public.scan_modes for all to anon, authenticated using (true) with check (true);
 
 drop policy if exists "scan_tags read" on public.scan_tags;
-create policy "scan_tags read" on public.scan_tags for select using (true);
+drop policy if exists "scan_tags all"  on public.scan_tags;
+create policy "scan_tags all" on public.scan_tags for all to anon, authenticated using (true) with check (true);
 
--- Публичный бакет для картинок
+-- Картинки хранятся в уже существующем публичном бакете content-media, в папке scanner/.
+-- Если бакета ещё нет — создаём (политики загрузки для anon уже описаны в README «Терминала колониста»).
 insert into storage.buckets (id, name, public)
-values ('scan-images', 'scan-images', true)
+values ('content-media', 'content-media', true)
 on conflict (id) do update set public = true;
 
 -- Профили по умолчанию (поправьте под свою игру)
