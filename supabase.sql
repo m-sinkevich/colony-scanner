@@ -1,0 +1,56 @@
+-- ================================================================
+--  Сканер для ролевой игры — таблицы в Supabase
+--  Выполнить один раз: Supabase → SQL Editor → вставить → Run
+-- ================================================================
+
+-- Типы сканеров (профили игроков). id — короткий латинский код.
+create table if not exists public.scan_modes (
+  id        text primary key,           -- medic, tech, sci …
+  name      text not null,              -- «Медицинский»
+  color     text default '#3DFFB0',     -- цвет интерфейса
+  subtitle  text default '',            -- подпись под названием
+  sort      int  default 0,             -- порядок в списке
+  active    boolean default true
+);
+
+-- Записи меток: что показать при сканировании кода метки данным сканером.
+create table if not exists public.scan_tags (
+  id         bigint generated always as identity primary key,
+  code       text not null,             -- код метки: UID (04A2B3C4…) или текст, записанный на метку
+  scanner    text not null default '*', -- id из scan_modes, или * — для любого сканера
+  title      text default '',           -- заголовок результата
+  body       text default '',           -- текст результата (переносы строк сохраняются)
+  image_url  text,                      -- полная ссылка или имя файла в бакете scan-images
+  active     boolean default true,
+  note       text,                      -- заметка для мастеров, в приложение не попадает
+  updated_at timestamptz default now(),
+  unique (code, scanner)
+);
+
+-- Чтение для всех (приложение использует публичный ключ), запись — только из панели Supabase.
+alter table public.scan_modes enable row level security;
+alter table public.scan_tags  enable row level security;
+
+drop policy if exists "scan_modes read" on public.scan_modes;
+create policy "scan_modes read" on public.scan_modes for select using (true);
+
+drop policy if exists "scan_tags read" on public.scan_tags;
+create policy "scan_tags read" on public.scan_tags for select using (true);
+
+-- Публичный бакет для картинок
+insert into storage.buckets (id, name, public)
+values ('scan-images', 'scan-images', true)
+on conflict (id) do update set public = true;
+
+-- Профили по умолчанию (поправьте под свою игру)
+insert into public.scan_modes (id, name, color, subtitle, sort) values
+  ('medic', 'Медицинский', '#3DFFB0', 'Биомонитор полевого медика', 1),
+  ('tech',  'Технический', '#3DB8FF', 'Диагностика оборудования и конструкций', 2),
+  ('sci',   'Научный',     '#FFB84D', 'Спектральный и биологический анализ', 3)
+on conflict (id) do nothing;
+
+-- Пример записей
+insert into public.scan_tags (code, scanner, title, body, image_url) values
+  ('DEMO', 'medic', 'Пациент: стабилен', E'Пульс: 72 уд/мин\nТемпература: 36.8 °C', null),
+  ('DEMO', 'tech',  'Генератор Г-12',    E'Состояние: исправен\nЗаряд: 64%',           null)
+on conflict (code, scanner) do nothing;

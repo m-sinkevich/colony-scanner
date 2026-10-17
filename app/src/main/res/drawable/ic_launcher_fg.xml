@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- outer ring -->
+    <path
+        android:strokeColor="#3DFFB0"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000"
+        android:pathData="M54,30 A24,24 0 1,1 53.99,30 Z" />
+    <!-- inner ring -->
+    <path
+        android:strokeColor="#803DFFB0"
+        android:strokeWidth="1.5"
+        android:fillColor="#00000000"
+        android:pathData="M54,42 A12,12 0 1,1 53.99,42 Z" />
+    <!-- sweep wedge -->
+    <path
+        android:fillColor="#663DFFB0"
+        android:pathData="M54,54 L54,30 A24,24 0 0,1 75,42 Z" />
+    <!-- crosshair -->
+    <path
+        android:strokeColor="#3DFFB0"
+        android:strokeWidth="1.5"
+        android:pathData="M54,24 L54,34 M54,74 L54,84 M24,54 L34,54 M74,54 L84,54" />
+    <!-- blip -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M64,44 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0" />
+</vector>
