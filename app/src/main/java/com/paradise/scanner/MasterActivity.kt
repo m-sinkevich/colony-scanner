@@ -33,7 +33,7 @@ class MasterActivity : Activity() {
         adapter = NfcAdapter.getDefaultAdapter(this)
         fx = Fx(this)
 
-        val scroll = ScrollView(this).apply { setBackgroundColor(Pal.BG) }
+        val scroll = ScrollView(this)
         val root = column(18)
         scroll.addView(root, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         val accent = Pal.WARN
@@ -52,6 +52,30 @@ class MasterActivity : Activity() {
         }
         root.addView(readout, lp().apply { topMargin = dp(8) })
         root.addView(termButton("КОПИРОВАТЬ КОД", accent) { copyCode() }, lp().apply { topMargin = dp(8) })
+
+        // --- сессия ---
+        section(root, "СЕССИЯ СКАНИРОВАНИЯ")
+        root.addView(label("Длительность в секундах (0 — без ограничения, до метки или отмены)", 12f, Pal.DIM), lp())
+        val secs = input("60", prefs.sessionSeconds.toString()).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        root.addView(secs, lp().apply { topMargin = dp(6) })
+        root.addView(termButton("СОХРАНИТЬ ДЛИТЕЛЬНОСТЬ", accent) {
+            val v = secs.text.toString().trim().toIntOrNull()
+            if (v == null || v < 0) toast("Введите число секунд")
+            else {
+                prefs.sessionSeconds = v
+                toast(if (v == 0) "Без ограничения по времени" else "Сессия: $v с")
+            }
+        }, lp().apply { topMargin = dp(8) })
+        val autoBtn = termButton("", accent) {}
+        fun paintAuto() {
+            autoBtn.text = if (prefs.autoScan) "МЕТКА БЕЗ КНОПКИ: СРАБАТЫВАЕТ" else "МЕТКА БЕЗ КНОПКИ: ИГНОРИРУЕТСЯ"
+            styleButton(autoBtn, accent, filled = prefs.autoScan)
+        }
+        autoBtn.setOnClickListener { prefs.autoScan = !prefs.autoScan; paintAuto() }
+        paintAuto()
+        root.addView(autoBtn, lp().apply { topMargin = dp(8) })
 
         // --- профиль ---
         section(root, "ПРОФИЛЬ СКАНЕРА")
@@ -106,7 +130,7 @@ class MasterActivity : Activity() {
         }, lp())
         root.addView(termButton("ВЫЙТИ ИЗ МЕНЮ", Pal.DIM) { finish() }, lp().apply { topMargin = dp(10); bottomMargin = dp(20) })
 
-        setContentView(scroll)
+        setContentView(spaceScreen(scroll, Pal.WARN).first)
         refresh()
     }
 

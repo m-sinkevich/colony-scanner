@@ -27,6 +27,16 @@ class Prefs(ctx: Context) {
         get() = p.getString("last_codes", "") ?: ""
         set(v) = p.edit().putString("last_codes", v).apply()
 
+    /** Длительность сессии сканирования в секундах; 0 — без ограничения (до метки или отмены). */
+    var sessionSeconds: Int
+        get() = p.getInt("session_sec", 60)
+        set(v) = p.edit().putInt("session_sec", v.coerceIn(0, 3600)).apply()
+
+    /** Реагировать на метку, даже если сканирование не запущено кнопкой. */
+    var autoScan: Boolean
+        get() = p.getBoolean("auto_scan", false)
+        set(v) = p.edit().putBoolean("auto_scan", v).apply()
+
     val hasServer: Boolean
         get() = supabaseUrl.isNotBlank() && supabaseKey.isNotBlank()
 }

@@ -88,28 +88,32 @@ class ResultActivity : Activity() {
             }
         }
 
-        val scroll = ScrollView(this).apply { isFillViewport = true; setBackgroundColor(Pal.BG) }
+        val scroll = ScrollView(this).apply { isFillViewport = true }
         val root = column(18)
         scroll.addView(root, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
 
         val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        root.addView(label("РЕЗУЛЬТАТ СКАНИРОВАНИЯ", 13f, accent, bold = true).apply { letterSpacing = 0.12f }, lp())
-        root.addView(label("$modeName · $time · ID $code", 11f, Pal.DIM), lp().apply { topMargin = dp(2) })
-
-        // разделитель
-        root.addView(View(this).apply { setBackgroundColor(Pal.withAlpha(accent, 120)) },
-            lp(h = dp(2)).apply { topMargin = dp(10); bottomMargin = dp(14) })
-
-        if (title.isNotBlank()) {
-            root.addView(label(title, 22f, accent, bold = true), lp().apply { bottomMargin = dp(12) })
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(14))
+            background = HudDrawable(context, accent, Pal.withAlpha(accent, 22), chamferDp = 16f)
         }
+        head.addView(label("◈ РЕЗУЛЬТАТ СКАНИРОВАНИЯ", 11f, accent, bold = true).apply { letterSpacing = 0.16f }, lp())
+        head.addView(label("${modeName.uppercase()} · $time · ID $code", 10f, Pal.DIM).apply { letterSpacing = 0.06f }, lp().apply { topMargin = dp(2) })
+        if (title.isNotBlank()) {
+            head.addView(label(title, 23f, accent, bold = true).glow(accent, 12f), lp().apply { topMargin = dp(10) })
+        }
+        root.addView(head, lp().apply { bottomMargin = dp(14) })
+        head.alpha = 0f
+        head.translationY = dp(-16).toFloat()
+        head.animate().alpha(1f).translationY(0f).setDuration(450).start()
 
         val maxW = resources.displayMetrics.widthPixels
         val bmp = Repo.loadImage(this, image, maxW)
         if (bmp != null) {
             val frame = FrameLayout(this).apply {
-                background = boxBg(context, Pal.withAlpha(accent, 160), Pal.PANEL, 4, 1)
-                val p = dp(4)
+                background = HudDrawable(context, accent, 0xCC060D11.toInt(), chamferDp = 14f)
+                val p = dp(6)
                 setPadding(p, p, p, p)
             }
             val iv = ImageView(this).apply {
@@ -124,8 +128,12 @@ class ResultActivity : Activity() {
             frame.animate().alpha(1f).setDuration(600).start()
         }
 
-        bodyView = label("", 16f, Pal.TEXT)
-        root.addView(bodyView, lp(h = 0, weight = 1f))
+        bodyView = label("", 16f, Pal.TEXT).apply {
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = HudDrawable(context, Pal.withAlpha(accent, 150), 0xCC060D11.toInt(), chamferDp = 12f, brackets = false)
+        }
+        root.addView(bodyView, lp())
+        root.addView(View(this), lp(h = 0, weight = 1f))
         fullText = body
         bodyView.setOnClickListener { showAll() }
         root.setOnClickListener { showAll() }
@@ -133,7 +141,7 @@ class ResultActivity : Activity() {
         val back = termButton("НОВОЕ СКАНИРОВАНИЕ", accent) { finish() }
         root.addView(back, lp().apply { topMargin = dp(18) })
 
-        setContentView(scroll)
+        setContentView(spaceScreen(scroll, accent).first)
         ui.postDelayed(typer, 250)
     }
 

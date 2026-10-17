@@ -66,18 +66,36 @@ fun boxBg(ctx: Context, stroke: Int, fill: Int = Color.TRANSPARENT, radiusDp: In
         setStroke(ctx.dp(strokeDp).coerceAtLeast(1), stroke)
     }
 
-/** Кнопка в стиле терминала: рамка цвета роли, моноширинный текст. */
+/** Кнопка в стиле космического терминала: скошенные углы, свечение, моноширинный текст. */
 fun Context.termButton(text: String, color: Int, filled: Boolean = false, onClick: () -> Unit): TextView =
     label(text, 17f, if (filled) Pal.BG else color, bold = true).apply {
         gravity = Gravity.CENTER
         isClickable = true
         isFocusable = true
-        letterSpacing = 0.12f
-        val pad = dp(14)
+        letterSpacing = 0.14f
+        val pad = dp(16)
         setPadding(pad, pad, pad, pad)
-        background = boxBg(context, color, if (filled) color else Pal.withAlpha(color, 24), 6, 2)
-        setOnClickListener { onClick() }
+        styleButton(this, color, filled)
+        setOnClickListener {
+            animate().scaleX(0.97f).scaleY(0.97f).setDuration(60).withEndAction {
+                animate().scaleX(1f).scaleY(1f).setDuration(90).start()
+            }.start()
+            onClick()
+        }
     }
+
+fun styleButton(v: TextView, color: Int, filled: Boolean) {
+    val ctx = v.context
+    v.setTextColor(if (filled) Pal.BG else color)
+    v.background = HudDrawable(ctx, color, if (filled) color else Pal.withAlpha(color, 30), chamferDp = 12f, strokeDp = 1.6f)
+    if (!filled) v.setShadowLayer(ctx.dpf(8f), 0f, 0f, Pal.withAlpha(color, 200)) else v.setShadowLayer(0f, 0f, 0f, 0)
+}
+
+/** Мягкое неоновое свечение текста. */
+fun TextView.glow(color: Int, radiusDp: Float = 10f): TextView {
+    setShadowLayer(context.dpf(radiusDp), 0f, 0f, Pal.withAlpha(color, 210))
+    return this
+}
 
 fun Context.input(hint: String, value: String, secret: Boolean = false): EditText = EditText(this).apply {
     setText(value)

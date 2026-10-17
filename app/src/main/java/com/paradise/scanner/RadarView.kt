@@ -17,7 +17,7 @@ import kotlin.random.Random
 /** Анимированный "экран сканера": кольца, вращающийся луч, отметки, кольцо прогресса. */
 class RadarView(ctx: Context) : View(ctx) {
 
-    enum class State { IDLE, SCANNING, LOCKED, FAIL, OFFLINE }
+    enum class State { IDLE, SCANNING, ANALYZING, LOCKED, FAIL, OFFLINE }
 
     var color: Int = Pal.DEFAULT_ACCENT
         set(v) {
@@ -41,6 +41,9 @@ class RadarView(ctx: Context) : View(ctx) {
     private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.BUTT
     }
+    private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private var dashAngle = 0f
+    private var waveT = 0f
     private var shader: SweepGradient? = null
     private val sweepMatrix = Matrix()
     private val rect = RectF()
@@ -69,7 +72,7 @@ class RadarView(ctx: Context) : View(ctx) {
         val h = height.toFloat()
         val cx = w / 2f
         val cy = h / 2f
-        val r = min(w, h) / 2f - context.dpf(14f)
+        val r = min(w, h) / 2f - context.dpf(34f)
         if (r <= 0f) return
         val c = current()
         val sw = context.dpf(1f)
@@ -100,9 +103,47 @@ class RadarView(ctx: Context) : View(ctx) {
                 cx + ca * (r + context.dpf(3f) + len), cy + sa * (r + context.dpf(3f) + len), ring)
         }
 
+        // внешние вращающиеся пунктирные кольца (в разные стороны)
+        val busy = state == State.SCANNING || state == State.ANALYZING
+        dashAngle = (dashAngle + dt * (if (busy) 60f else 14f)) % 360f
+        dash.color = Pal.withAlpha(c, 150)
+        dash.strokeWidth = context.dpf(2f)
+        dash.pathEffect = android.graphics.DashPathEffect(floatArrayOf(context.dpf(14f), context.dpf(8f)), 0f)
+        val r1 = r + context.dpf(20f)
+        rect.set(cx - r1, cy - r1, cx + r1, cy + r1)
+        canvas.save(); canvas.rotate(dashAngle, cx, cy)
+        canvas.drawArc(rect, 0f, 300f, false, dash)
+        canvas.restore()
+        dash.color = Pal.withAlpha(c, 80)
+        dash.strokeWidth = context.dpf(1f)
+        dash.pathEffect = android.graphics.DashPathEffect(floatArrayOf(context.dpf(3f), context.dpf(6f)), 0f)
+        val r2 = r + context.dpf(28f)
+        canvas.save(); canvas.rotate(-dashAngle * 1.7f, cx, cy)
+        canvas.drawCircle(cx, cy, r2, dash)
+        canvas.restore()
+        // три "спутника" на орбите
+        for (k in 0 until 3) {
+            val oa = Math.toRadians((dashAngle * 2.3f + k * 120f).toDouble())
+            fill.color = Pal.withAlpha(c, 230)
+            canvas.drawCircle(cx + cos(oa).toFloat() * r2, cy + sin(oa).toFloat() * r2, context.dpf(2.6f), fill)
+        }
+
+        // волны сканирования, расходящиеся от центра
+        if (busy) {
+            waveT += dt * (if (state == State.ANALYZING) 1.6f else 0.7f)
+            for (k in 0 until 3) {
+                val f = ((waveT + k / 3f) % 1f)
+                ring.color = Pal.withAlpha(c, ((1f - f) * 120).toInt())
+                ring.strokeWidth = context.dpf(2f)
+                canvas.drawCircle(cx, cy, r * f, ring)
+            }
+            ring.strokeWidth = sw
+        }
+
         val speed = when (state) {
-            State.IDLE -> 70f
-            State.SCANNING -> 330f
+            State.IDLE -> 50f
+            State.SCANNING -> 200f
+            State.ANALYZING -> 420f
             State.LOCKED -> 0f
             State.FAIL -> 40f
             State.OFFLINE -> 0f
@@ -129,7 +170,7 @@ class RadarView(ctx: Context) : View(ctx) {
         }
 
         // отметки
-        val spawnChance = if (state == State.SCANNING) 0.25f else 0.03f
+        val spawnChance = if (state == State.ANALYZING) 0.35f else if (state == State.SCANNING) 0.08f else 0.03f
         if (state != State.OFFLINE && state != State.LOCKED && Random.nextFloat() < spawnChance) {
             blips.add(Blip(angle, Random.nextFloat() * 0.85f + 0.1f, 1f))
         }
@@ -146,7 +187,7 @@ class RadarView(ctx: Context) : View(ctx) {
         }
 
         // кольцо прогресса
-        if (state == State.SCANNING || state == State.LOCKED) {
+        if (state == State.SCANNING || state == State.ANALYZING || state == State.LOCKED) {
             arc.color = c
             arc.strokeWidth = context.dpf(5f)
             val o = r + context.dpf(3f)
