@@ -86,6 +86,13 @@
   .toast.err{border-color:var(--err);color:var(--err)}
   .hint{border-left:2px solid var(--blue);padding:8px 12px;color:var(--dim);font-size:12px;margin:0 0 14px;background:rgba(61,184,255,.04)}
   input[type=color]{padding:2px;height:36px;width:56px}
+  .settings{border:1px solid var(--line);background:var(--panel);padding:12px 16px;margin-bottom:16px}
+  .settings summary{cursor:pointer;color:var(--acc);letter-spacing:.14em;font-size:12px;list-style:none}
+  .settings summary::-webkit-details-marker{display:none}
+  .settings summary::before{content:'▸ ';}
+  .settings[open] summary::before{content:'▾ ';}
+  .set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:4px 16px}
+  .set-grid select,.set-grid input{width:100%}
 </style>
 </head>
 <body>
@@ -106,6 +113,31 @@
   <div id="fatal"></div>
 
   <section id="tab-tags">
+    <details class="settings" id="settings-box">
+      <summary>⚙ НАСТРОЙКИ СКАНЕРОВ <span class="note" id="set-state"></span></summary>
+      <p class="hint" style="margin-top:12px">Применяются ко <b>всем телефонам</b> при следующем «ОБНОВИТЬ ⟳». «Как на телефоне» — настройка не задана отсюда, у каждого телефона остаётся своя (из служебного меню).</p>
+      <div class="set-grid">
+        <div class="f"><label>ДЛИТЕЛЬНОСТЬ СЕССИИ СКАНИРОВАНИЯ</label>
+          <div class="row2" style="grid-template-columns:1.3fr 1fr">
+            <select id="s-sess-mode" onchange="syncSessField()">
+              <option value="">как на телефоне</option>
+              <option value="limit">ограничить (сек)</option>
+              <option value="0">без ограничения (до метки или отмены)</option>
+            </select>
+            <input id="s-sess" type="number" min="1" max="3600" placeholder="60">
+          </div></div>
+        <div class="f"><label>МЕТКА БЕЗ НАЖАТИЯ «СКАНИРОВАТЬ»</label>
+          <select id="s-auto"><option value="">как на телефоне</option><option value="true">срабатывает</option><option value="false">игнорируется</option></select></div>
+        <div class="f"><label>ТИПЫ МЕТОК</label>
+          <select id="s-types"><option value="">как на телефоне</option><option value="false">NTAG / MIFARE (быстро)</option><option value="true">все типы (медленнее)</option></select></div>
+        <div class="f"><label>PIN СЛУЖЕБНОГО МЕНЮ</label>
+          <input id="s-pin" inputmode="numeric" placeholder="не менять" autocomplete="off"></div>
+      </div>
+      <div class="bar" style="margin:4px 0 0">
+        <button class="btn fill" id="s-save" onclick="saveSettings()">СОХРАНИТЬ НАСТРОЙКИ</button>
+        <span class="note" id="s-updated"></span>
+      </div>
+    </details>
     <div class="bar">
       <button class="btn fill" onclick="openEditor()">+ НОВАЯ МЕТКА</button>
       <input id="q" placeholder="поиск: код, заголовок, текст" style="flex:1;min-width:200px" oninput="renderTags()">
@@ -247,6 +279,7 @@ async function loadAll() {
       : 'Ошибка загрузки: ' + esc(e.message)}</div>`;
   }
   fillModeSelects(); renderTags(); renderModes();
+  loadSettings();
 }
 
 function fillModeSelects() {
@@ -387,6 +420,64 @@ async function delTag(id) {
   if (!confirm(`Удалить запись «${t.title || t.code}» (${t.scanner})?`)) return;
   try { await api(`scan_tags?id=eq.${id}`, { method: 'DELETE' }); toast('Удалено'); await loadAll(); }
   catch (e) { toast('Ошибка: ' + e.message, true); }
+}
+
+// ===== настройки сканеров (scan_settings, одна строка id = 1) =====
+let SETTINGS = null;
+function syncSessField() {
+  const m = $('s-sess-mode').value;
+  $('s-sess').disabled = m !== 'limit';
+  if (m === 'limit' && !$('s-sess').value) $('s-sess').value = 60;
+}
+async function loadSettings() {
+  try {
+    const rows = await api('scan_settings?select=*&id=eq.1');
+    SETTINGS = rows[0] || { id: 1 };
+    const sec = SETTINGS.session_seconds;
+    $('s-sess-mode').value = sec == null ? '' : (sec === 0 ? '0' : 'limit');
+    $('s-sess').value = sec > 0 ? sec : '';
+    $('s-auto').value = SETTINGS.auto_scan == null ? '' : String(SETTINGS.auto_scan);
+    $('s-types').value = SETTINGS.all_tag_types == null ? '' : String(SETTINGS.all_tag_types);
+    $('s-pin').value = '';
+    $('s-pin').placeholder = SETTINGS.master_pin ? 'задан · введите новый, чтобы сменить' : 'не задан (на телефонах свой)';
+    const set = [sec != null, SETTINGS.auto_scan != null, SETTINGS.all_tag_types != null, !!SETTINGS.master_pin].filter(Boolean).length;
+    $('set-state').textContent = set ? `· задано: ${set} из 4` : '· всё как на телефонах';
+    $('s-updated').textContent = SETTINGS.updated_at ? 'изменено ' + new Date(SETTINGS.updated_at).toLocaleString() : '';
+    $('s-save').disabled = false;
+  } catch (e) {
+    const missing = e.status === 404 || /does not exist|Could not find the table/i.test(e.body || e.message);
+    $('set-state').textContent = missing ? '· нет таблицы scan_settings — выполните supabase.sql' : '· ошибка загрузки';
+    $('s-save').disabled = true;
+  }
+  syncSessField();
+}
+async function saveSettings() {
+  const m = $('s-sess-mode').value;
+  let sec = null;
+  if (m === '0') sec = 0;
+  if (m === 'limit') {
+    sec = parseInt($('s-sess').value, 10);
+    if (!(sec >= 1 && sec <= 3600)) { toast('Длительность — от 1 до 3600 секунд', true); return; }
+  }
+  const pin = $('s-pin').value.trim();
+  if (pin && !/^\d{4,}$/.test(pin)) { toast('PIN — минимум 4 цифры', true); return; }
+  const tri = v => v === '' ? null : v === 'true';
+  const row = {
+    id: 1,
+    session_seconds: sec,
+    auto_scan: tri($('s-auto').value),
+    all_tag_types: tri($('s-types').value),
+    updated_at: new Date().toISOString(),
+  };
+  if (pin) row.master_pin = pin;
+  $('s-save').disabled = true;
+  try {
+    await api('scan_settings?on_conflict=id', { method: 'POST', body: JSON.stringify(row),
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
+    toast('Настройки сохранены — телефоны получат их при «ОБНОВИТЬ ⟳»');
+    await loadSettings();
+  } catch (e) { toast('Ошибка сохранения: ' + e.message, true); }
+  finally { $('s-save').disabled = false; }
 }
 
 // ===== профили =====

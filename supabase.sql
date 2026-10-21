@@ -58,3 +58,22 @@ insert into public.scan_tags (code, scanner, title, body, image_url) values
   ('DEMO', 'medic', 'Пациент: стабилен', E'Пульс: 72 уд/мин\nТемпература: 36.8 °C', null),
   ('DEMO', 'tech',  'Генератор Г-12',    E'Состояние: исправен\nЗаряд: 64%',           null)
 on conflict (code, scanner) do nothing;
+
+-- ================================================================
+--  Настройки сканеров для всех телефонов (задаются в терминале мастера:
+--  «Метки NFC» → «Настройки сканеров»). Одна строка с id = 1.
+--  Пустое значение (null) — настройка не задана, на телефоне остаётся своя.
+--  Телефоны получают настройки при обновлении базы.
+-- ================================================================
+create table if not exists public.scan_settings (
+  id              int primary key default 1 check (id = 1),
+  session_seconds int check (session_seconds between 0 and 3600), -- длительность сессии сканирования, 0 — без ограничения
+  auto_scan       boolean,   -- реагировать на метку без нажатия «Сканировать»
+  all_tag_types   boolean,   -- опрашивать все типы NFC (медленнее)
+  master_pin      text,      -- PIN служебного меню (минимум 4 цифры)
+  updated_at      timestamptz default now()
+);
+alter table public.scan_settings enable row level security;
+drop policy if exists "scan_settings all" on public.scan_settings;
+create policy "scan_settings all" on public.scan_settings for all to anon, authenticated using (true) with check (true);
+insert into public.scan_settings (id) values (1) on conflict (id) do nothing;

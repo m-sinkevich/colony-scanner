@@ -55,6 +55,7 @@ class MasterActivity : Activity() {
 
         // --- сессия ---
         section(root, "СЕССИЯ СКАНИРОВАНИЯ")
+        root.addView(label("Настройки этого раздела и PIN можно задать для всех телефонов сразу в терминале мастера (Метки NFC → Настройки сканеров). Заданные там значения заменят здешние при следующем обновлении базы.", 11f, Pal.DIM), lp().apply { bottomMargin = dp(6) })
         root.addView(label("Длительность в секундах (0 — без ограничения, до метки или отмены)", 12f, Pal.DIM), lp())
         val secs = input("60", prefs.sessionSeconds.toString()).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER

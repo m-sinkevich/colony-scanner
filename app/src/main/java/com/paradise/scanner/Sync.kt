@@ -21,7 +21,8 @@ object Sync {
     const val BUCKET = "content-media"
     private const val PAGE = 1000
 
-    class Report(val modes: Int, val tags: Int, val images: Int, val imageErrors: Int)
+    /** settings — список применённых настроек из терминала мастера (пусто, если не заданы). */
+    class Report(val modes: Int, val tags: Int, val images: Int, val imageErrors: Int, val settings: List<String> = emptyList())
 
     /** Запуск в фоне; onProgress и onDone вызываются в главном потоке. */
     fun start(
@@ -129,7 +130,44 @@ object Sync {
         // удаляем картинки, на которые больше никто не ссылается
         dir.listFiles()?.forEach { if (it.name !in usedFiles) it.delete() }
 
-        return Report(modes.size, entries.size, imgOk, imgErr)
+        progress("Настройки сканера…")
+        val applied = applySettings(base, key, prefs)
+
+        return Report(modes.size, entries.size, imgOk, imgErr, applied)
+    }
+
+    /**
+     * Настройки из терминала мастера (таблица scan_settings, одна строка id = 1).
+     * Пустое поле (null) — настройка не задана централизованно, на телефоне остаётся своё значение.
+     * Заданные значения заменяют выставленные вручную в служебном меню.
+     */
+    private fun applySettings(base: String, key: String, prefs: Prefs): List<String> {
+        val arr = try {
+            fetchAll(base, key, "scan_settings", "id.asc")
+        } catch (e: HttpError) {
+            if (e.code == 404 || e.code == 400) return emptyList() else throw e
+        }
+        if (arr.length() == 0) return emptyList()
+        val x = arr.getJSONObject(0)
+        val out = ArrayList<String>()
+        if (x.has("session_seconds") && !x.isNull("session_seconds")) {
+            prefs.sessionSeconds = x.optInt("session_seconds", prefs.sessionSeconds)
+            out.add(if (prefs.sessionSeconds == 0) "сессия без ограничения" else "сессия ${prefs.sessionSeconds} с")
+        }
+        if (x.has("auto_scan") && !x.isNull("auto_scan")) {
+            prefs.autoScan = x.optBoolean("auto_scan", prefs.autoScan)
+            out.add(if (prefs.autoScan) "метка без кнопки срабатывает" else "метка без кнопки игнорируется")
+        }
+        if (x.has("all_tag_types") && !x.isNull("all_tag_types")) {
+            prefs.allTagTypes = x.optBoolean("all_tag_types", prefs.allTagTypes)
+            out.add(if (prefs.allTagTypes) "все типы меток" else "только NTAG/MIFARE")
+        }
+        val pin = if (x.has("master_pin") && !x.isNull("master_pin")) x.optString("master_pin").trim() else ""
+        if (pin.length >= 4 && pin.all { it.isDigit() }) {
+            prefs.pin = pin
+            out.add("PIN мастера обновлён")
+        }
+        return out
     }
 
     private fun str(x: JSONObject, vararg names: String): String {
