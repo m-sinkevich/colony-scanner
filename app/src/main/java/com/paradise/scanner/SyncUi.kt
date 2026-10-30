@@ -42,6 +42,7 @@ object SyncUi {
                     append("База обновлена.\n\n")
                     append("Типов сканеров: ${report.modes}\n")
                     append("Записей меток: ${report.tags}\n")
+                    append("Персонажей (бейджи): ${report.people}\n")
                     append("Картинок скачано: ${report.images}")
                     if (report.imageErrors > 0) append("\nНе удалось скачать картинок: ${report.imageErrors}")
                     if (report.settings.isNotEmpty()) append("\n\nНастройки из терминала мастера:\n• " + report.settings.joinToString("\n• "))

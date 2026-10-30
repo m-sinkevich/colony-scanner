@@ -12,11 +12,11 @@ import android.os.Bundle
 /** Что удалось прочитать с метки. */
 data class TagRead(val uid: String, val texts: List<String>) {
     /** Порядок поиска: сначала то, что мастер записал на метку, потом заводской UID. */
-    val candidates: List<String> get() = texts + uid
+    val candidates: List<String> get() = (texts + uid).filter { it.isNotBlank() }
 
     fun describe(): String = buildString {
-        append("UID: ").append(uid)
-        texts.forEach { append("\nТекст: ").append(it) }
+        if (uid.isNotBlank()) append("UID: ").append(uid)
+        texts.forEach { if (isNotEmpty()) append("\n"); append(if (uid.isBlank()) "QR: " else "Текст: ").append(it) }
     }
 }
 

@@ -66,3 +66,8 @@ android {
         abortOnError = false
     }
 }
+
+dependencies {
+    // оптический сканер QR (камера), работает без интернета
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+}

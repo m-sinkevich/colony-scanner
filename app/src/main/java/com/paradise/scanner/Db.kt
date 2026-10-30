@@ -26,8 +26,21 @@ data class Entry(
     val image: String?,    // имя файла в локальном кэше или "asset:имя"
 )
 
+/** Персонаж игры (таблица characters «Терминала колониста»): опознаётся по коду бейджа. */
+data class Person(
+    val id: String,
+    val name: String,
+    val codes: List<String>,   // код бейджа (qr_code) и номер бейджа (badge_id)
+    val tagline: String,
+    val module: String,        // модуль приписки
+    val photo: String?,        // имя файла в локальном кэше
+)
+
 sealed class Lookup {
-    data class Found(val entry: Entry, val code: String) : Lookup()
+    /** person — если код метки одновременно код бейджа персонажа. */
+    data class Found(val entry: Entry, val code: String, val person: Person? = null) : Lookup()
+    /** Бейдж персонажа, для которого у этого профиля нет отдельной записи. */
+    data class Identified(val person: Person, val code: String) : Lookup()
     data class WrongScanner(val code: String) : Lookup()
     data class Unknown(val code: String) : Lookup()
 }
@@ -41,13 +54,19 @@ object Codes {
 class Database(
     val modes: List<Mode>,
     val entries: List<Entry>,
+    val people: List<Person>,
     val updatedAt: Long,
     val fromServer: Boolean,
 ) {
     private val index = HashMap<String, Entry>()
     private val knownCodes = HashSet<String>()
+    private val peopleIndex = HashMap<String, Person>()
 
     init {
+        for (p in people) for (code in p.codes) {
+            val c = Codes.norm(code)
+            if (c.isNotEmpty()) peopleIndex[c] = p
+        }
         for (e in entries) {
             val c = Codes.norm(e.code)
             if (c.isEmpty()) continue
@@ -66,7 +85,10 @@ class Database(
         val norm = candidates.map { Codes.norm(it) }.filter { it.isNotEmpty() }
         for (c in norm) {
             val e = index["$c|$modeId"] ?: index["$c|*"]
-            if (e != null) return Lookup.Found(e, c)
+            if (e != null) return Lookup.Found(e, c, peopleIndex[c])
+        }
+        for (c in norm) {
+            peopleIndex[c]?.let { return Lookup.Identified(it, c) }
         }
         for (c in norm) {
             if (c in knownCodes) return Lookup.WrongScanner(c)
@@ -86,7 +108,14 @@ class Database(
                     .put("body", it.body).put("image", it.image ?: JSONObject.NULL)
             )
         }
-        return JSONObject().put("updated_at", updatedAt).put("from_server", fromServer).put("modes", m).put("tags", t)
+        val pp = JSONArray()
+        people.forEach {
+            pp.put(
+                JSONObject().put("id", it.id).put("name", it.name).put("codes", JSONArray(it.codes))
+                    .put("tagline", it.tagline).put("module", it.module).put("photo", it.photo ?: JSONObject.NULL)
+            )
+        }
+        return JSONObject().put("updated_at", updatedAt).put("from_server", fromServer).put("modes", m).put("tags", t).put("people", pp)
     }
 
     companion object {
@@ -116,7 +145,24 @@ class Database(
                     )
                 )
             }
-            return Database(modes, entries, o.optLong("updated_at", 0L), o.optBoolean("from_server", false))
+            val people = ArrayList<Person>()
+            val pa = o.optJSONArray("people") ?: JSONArray()
+            for (i in 0 until pa.length()) {
+                val x = pa.getJSONObject(i)
+                val ca = x.optJSONArray("codes") ?: JSONArray()
+                val codes = (0 until ca.length()).map { ca.optString(it) }.filter { it.isNotBlank() }
+                people.add(
+                    Person(
+                        id = x.optString("id"),
+                        name = x.optString("name"),
+                        codes = codes,
+                        tagline = x.optString("tagline"),
+                        module = x.optString("module"),
+                        photo = if (x.isNull("photo")) null else x.optString("photo").ifBlank { null },
+                    )
+                )
+            }
+            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false))
         }
     }
 }

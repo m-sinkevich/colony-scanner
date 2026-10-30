@@ -22,7 +22,10 @@ object Sync {
     private const val PAGE = 1000
 
     /** settings — список применённых настроек из терминала мастера (пусто, если не заданы). */
-    class Report(val modes: Int, val tags: Int, val images: Int, val imageErrors: Int, val settings: List<String> = emptyList())
+    class Report(val modes: Int, val tags: Int, val images: Int, val imageErrors: Int, val settings: List<String> = emptyList(), val people: Int = 0)
+
+    /** Сайт «Терминала колониста»: фото персонажей из каталога лежат там (catalog/…, badges/…). */
+    const val SITE = "https://m-sinkevich.github.io/paradise/"
 
     /** Запуск в фоне; onProgress и onDone вызываются в главном потоке. */
     fun start(
@@ -118,7 +121,51 @@ object Sync {
             )
         }
 
-        val db = Database(modes, entries, System.currentTimeMillis(), true)
+        // персонажи: бейдж опознаётся сканером по своему коду (QR или NFC-метка с тем же текстом)
+        progress("Загрузка персонажей…")
+        val people: List<Person> = try {
+            val moduleNames = HashMap<String, String>()
+            try {
+                val ma = fetchAll(base, key, "modules", "name.asc")
+                for (i in 0 until ma.length()) {
+                    val x = ma.getJSONObject(i)
+                    moduleNames[x.optString("id")] = x.optString("name")
+                }
+            } catch (e: HttpError) { /* без модулей — просто без подписи */ }
+            val arr = fetchAll(base, key, "characters", "name.asc")
+            val list = ArrayList<Person>()
+            for (i in 0 until arr.length()) {
+                val x = arr.getJSONObject(i)
+                if (x.has("active") && !x.isNull("active") && !x.optBoolean("active", true)) continue
+                val codes = listOf(str(x, "qr_code"), str(x, "badge_id")).filter { it.isNotBlank() && !it.endsWith("-OLD") }
+                if (codes.isEmpty()) continue
+                var moduleId = str(x, "home_module_id")
+                if (moduleId.isBlank()) x.optJSONArray("module_access")?.let { if (it.length() > 0) moduleId = it.optString(0) }
+                val rawPhoto = str(x, "photo_url")
+                var local: String? = null
+                if (rawPhoto.isNotBlank()) {
+                    val url = personPhotoUrl(base, rawPhoto)
+                    if (downloaded.containsKey(url)) local = downloaded[url]
+                    else {
+                        progress("Фото: ${str(x, "name")}")
+                        local = try {
+                            download(url, key, dir).also { imgOk++ }
+                        } catch (e: Exception) {
+                            imgErr++
+                            fileNameFor(url).takeIf { File(dir, it).exists() }
+                        }
+                        downloaded[url] = local
+                    }
+                    local?.let { usedFiles.add(it) }
+                }
+                list.add(Person(str(x, "id"), str(x, "name"), codes, str(x, "tagline"), moduleNames[moduleId] ?: "", local))
+            }
+            list
+        } catch (e: HttpError) {
+            if (e.code == 404 || e.code == 400) old.people else throw e
+        }
+
+        val db = Database(modes, entries, people, System.currentTimeMillis(), true)
         val tmp = File(ctx.filesDir, "db.json.tmp")
         tmp.writeText(db.toJson().toString())
         if (!tmp.renameTo(Repo.dbFile(ctx))) {
@@ -133,7 +180,7 @@ object Sync {
         progress("Настройки сканера…")
         val applied = applySettings(base, key, prefs)
 
-        return Report(modes.size, entries.size, imgOk, imgErr, applied)
+        return Report(modes.size, entries.size, imgOk, imgErr, applied, people.size)
     }
 
     /**
@@ -187,6 +234,13 @@ object Sync {
         val path = r.trimStart('/').removePrefix("$BUCKET/")
         val enc = path.split('/').joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
         return "$base/storage/v1/object/public/$BUCKET/$enc"
+    }
+
+    /** Фото персонажа: полная ссылка, файл сайта (catalog/…, badges/…) или путь в бакете. */
+    private fun personPhotoUrl(base: String, raw: String): String {
+        val r = raw.trim().trimStart('/')
+        if (r.startsWith("catalog/") || r.startsWith("badges/")) return SITE + r
+        return imageUrl(base, raw)
     }
 
     private fun fileNameFor(url: String): String {

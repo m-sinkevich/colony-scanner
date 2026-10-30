@@ -29,17 +29,43 @@ class ResultActivity : Activity() {
         private const val K_IMAGE = "image"
         private const val K_MODE_NAME = "mode_name"
         private const val K_COLOR = "color"
+        private const val K_PERSON = "person"
+        private const val K_PERSON_PHOTO = "person_photo"
+        private const val K_PERSON_LINE = "person_line"
+        const val GAME_YEAR = "4073 С.Э."   // год по лору: 4073 Соланской эры
+
+        /** Короткая справка о персонаже (markdown). */
+        private fun personInfo(p: Person): String = buildString {
+            if (p.module.isNotBlank()) append("**Модуль приписки:** ").append(p.module).append("\n")
+            if (p.tagline.isNotBlank()) append("\n_").append(p.tagline.replace("_", "\\_")).append("_\n")
+        }.trim()
+
+        private fun putPerson(i: Intent, p: Person?) {
+            if (p == null) return
+            i.putExtra(K_PERSON, p.name).putExtra(K_PERSON_PHOTO, p.photo)
+                .putExtra(K_PERSON_LINE, listOf(p.name, p.module).filter { it.isNotBlank() }.joinToString(" · "))
+        }
 
         fun intent(ctx: Context, mode: Mode, r: Lookup): Intent {
             val i = Intent(ctx, ResultActivity::class.java)
                 .putExtra(K_MODE_NAME, mode.name)
                 .putExtra(K_COLOR, mode.color)
             when (r) {
-                is Lookup.Found -> i.putExtra(K_KIND, "found")
-                    .putExtra(K_CODE, r.code)
-                    .putExtra(K_TITLE, r.entry.title)
-                    .putExtra(K_BODY, r.entry.body)
-                    .putExtra(K_IMAGE, r.entry.image)
+                is Lookup.Found -> {
+                    i.putExtra(K_KIND, "found")
+                        .putExtra(K_CODE, r.code)
+                        .putExtra(K_TITLE, r.entry.title.ifBlank { r.person?.name ?: "" })
+                        .putExtra(K_BODY, r.entry.body)
+                        .putExtra(K_IMAGE, r.entry.image ?: r.person?.photo)
+                    putPerson(i, r.person)
+                }
+                is Lookup.Identified -> {
+                    i.putExtra(K_KIND, "person")
+                        .putExtra(K_CODE, r.code)
+                        .putExtra(K_TITLE, r.person.name)
+                        .putExtra(K_BODY, personInfo(r.person))
+                        .putExtra(K_IMAGE, r.person.photo)
+                }
                 is Lookup.WrongScanner -> i.putExtra(K_KIND, "wrong").putExtra(K_CODE, r.code)
                 is Lookup.Unknown -> i.putExtra(K_KIND, "unknown").putExtra(K_CODE, r.code)
             }
@@ -48,7 +74,7 @@ class ResultActivity : Activity() {
     }
 
     private val ui = Handler(Looper.getMainLooper())
-    private var fullText = ""
+    private var fullText: CharSequence = ""
     private var shown = 0
     private lateinit var bodyView: TextView
     private var fx: Fx? = null
@@ -62,7 +88,7 @@ class ResultActivity : Activity() {
         val code = intent.getStringExtra(K_CODE) ?: "—"
         val modeName = intent.getStringExtra(K_MODE_NAME) ?: ""
         val accent = when (kind) {
-            "found" -> intent.getIntExtra(K_COLOR, Pal.DEFAULT_ACCENT)
+            "found", "person" -> intent.getIntExtra(K_COLOR, Pal.DEFAULT_ACCENT)
             "wrong" -> Pal.WARN
             else -> Pal.ERROR
         }
@@ -71,7 +97,7 @@ class ResultActivity : Activity() {
         val body: String
         val image: String?
         when (kind) {
-            "found" -> {
+            "found", "person" -> {
                 title = intent.getStringExtra(K_TITLE).orEmpty()
                 body = intent.getStringExtra(K_BODY).orEmpty()
                 image = intent.getStringExtra(K_IMAGE)
@@ -92,16 +118,32 @@ class ResultActivity : Activity() {
         val root = column(18)
         scroll.addView(root, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
 
-        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        // дата по лору: день и месяц сегодняшние, год — 4073 С.Э.
+        val now = Date()
+        val time = SimpleDateFormat("dd.MM.", Locale.getDefault()).format(now) + GAME_YEAR + " · " +
+            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(now)
+        val kicker = when (kind) {
+            "person" -> "◈ ЛИЧНОСТЬ ИДЕНТИФИЦИРОВАНА"
+            "found" -> "◈ РЕЗУЛЬТАТ СКАНИРОВАНИЯ"
+            else -> "◈ РЕЗУЛЬТАТ СКАНИРОВАНИЯ"
+        }
+        // какой код прочитан, игроку не показываем
+        val readLine = if (kind == "unknown") "СИГНАТУРА НЕ РАСПОЗНАНА" else "✓ ДАННЫЕ УСПЕШНО СЧИТАНЫ"
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(14))
             background = HudDrawable(context, accent, Pal.withAlpha(accent, 22), chamferDp = 16f)
         }
-        head.addView(label("◈ РЕЗУЛЬТАТ СКАНИРОВАНИЯ", 11f, accent, bold = true).apply { letterSpacing = 0.16f }, lp())
-        head.addView(label("${modeName.uppercase()} · $time · ID $code", 10f, Pal.DIM).apply { letterSpacing = 0.06f }, lp().apply { topMargin = dp(2) })
+        head.addView(label(kicker, 11f, accent, bold = true).apply { letterSpacing = 0.16f }, lp())
+        head.addView(label("${modeName.uppercase()} · $time", 10f, Pal.DIM).apply { letterSpacing = 0.06f }, lp().apply { topMargin = dp(2) })
+        head.addView(label(readLine, 10f, if (kind == "unknown") Pal.ERROR else accent).apply { letterSpacing = 0.08f }, lp().apply { topMargin = dp(2) })
         if (title.isNotBlank()) {
             head.addView(label(title, 23f, accent, bold = true).glow(accent, 12f), lp().apply { topMargin = dp(10) })
+        }
+        // запись к бейджу персонажа — под заголовком подпись «кто это»
+        val personLine = intent.getStringExtra(K_PERSON_LINE).orEmpty()
+        if (kind == "found" && personLine.isNotBlank() && personLine.substringBefore(" · ") != title) {
+            head.addView(label("СУБЪЕКТ: ${personLine.uppercase()}", 11f, Pal.TEXT).apply { letterSpacing = 0.06f }, lp().apply { topMargin = dp(4) })
         }
         root.addView(head, lp().apply { bottomMargin = dp(14) })
         head.alpha = 0f
@@ -134,7 +176,7 @@ class ResultActivity : Activity() {
         }
         root.addView(bodyView, lp())
         root.addView(View(this), lp(h = 0, weight = 1f))
-        fullText = body
+        fullText = Md.render(body, accent, dp(18))
         bodyView.setOnClickListener { showAll() }
         root.setOnClickListener { showAll() }
 
@@ -151,7 +193,7 @@ class ResultActivity : Activity() {
             // печатаем по несколько символов, чтобы длинный текст не тянулся вечно
             val step = if (fullText.length > 600) 6 else if (fullText.length > 250) 3 else 2
             shown = (shown + step).coerceAtMost(fullText.length)
-            bodyView.text = fullText.substring(0, shown) + if (shown < fullText.length) "▌" else ""
+            bodyView.text = if (shown < fullText.length) android.text.SpannableStringBuilder(fullText.subSequence(0, shown)).append("▌") else fullText
             if (shown % 12 < step) fx?.tick()
             if (shown < fullText.length) ui.postDelayed(this, 18)
         }

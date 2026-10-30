@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.content.pm.PackageManager
+import com.google.zxing.integration.android.IntentIntegrator
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
@@ -46,6 +48,8 @@ class ScanActivity : Activity() {
     private lateinit var timerLabel: TextView
     private lateinit var timer: TextView
     private lateinit var scanBtn: TextView
+    private lateinit var qrBtn: TextView
+    private var pendingQr: TagRead? = null
     private lateinit var radar: RadarView
     private lateinit var logPanel: LinearLayout
     private lateinit var telemetry: TextView
@@ -86,7 +90,7 @@ class ScanActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(12))
         }
-        kicker = label("◈ КОЛОНИАЛЬНЫЙ СКАНЕР · v${BuildConfig.VERSION_NAME}", 10f, Pal.DIM).apply { letterSpacing = 0.15f }
+        kicker = label("◈ КОЛОНИАЛЬНЫЙ СКАНЕР · ${ResultActivity.GAME_YEAR} · v${BuildConfig.VERSION_NAME}", 10f, Pal.DIM).apply { letterSpacing = 0.15f }
         header = label("СКАНЕР", 24f, Pal.DEFAULT_ACCENT, bold = true).apply { letterSpacing = 0.12f }
         subtitle = label("", 11f, Pal.DIM)
         headerPanel.addView(kicker, lp())
@@ -130,6 +134,14 @@ class ScanActivity : Activity() {
         }
         root.addView(scanBtn, lp().apply { topMargin = dp(12) })
 
+        // --- оптический сканер: QR-коды бейджей и объектов (камера) ---
+        qrBtn = termButton("◎  ОПТИЧЕСКИЙ СКАН · QR", Pal.DEFAULT_ACCENT) { startQr() }.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            val p = dp(10); setPadding(p, p, p, p)
+            visibility = if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) View.VISIBLE else View.GONE
+        }
+        root.addView(qrBtn, lp().apply { topMargin = dp(8) })
+
         // --- радар ---
         radar = RadarView(this)
         root.addView(radar, lp(h = 0, weight = 1f).apply { topMargin = dp(6); bottomMargin = dp(6) })
@@ -171,6 +183,7 @@ class ScanActivity : Activity() {
         headerPanel.background = HudDrawable(this, c, Pal.withAlpha(c, 18), chamferDp = 16f)
         logPanel.background = HudDrawable(this, Pal.withAlpha(c, 160), 0xCC060D11.toInt(), chamferDp = 10f, brackets = false)
         if (!sessionActive && !analyzing) styleButton(scanBtn, c, filled = false)
+        styleButton(qrBtn, c, filled = false)
     }
 
     private fun refreshFooter() {
@@ -178,7 +191,7 @@ class ScanActivity : Activity() {
         val whenStr = if (db.updatedAt > 0)
             SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(db.updatedAt)) else "—"
         val src = if (db.fromServer) "БАЗА $whenStr" else "ДЕМО-БАЗА"
-        footer.text = "◇ ЗАПИСЕЙ ${db.entries.size} · $src · ОБНОВИТЬ ⟳"
+        footer.text = "◇ ЗАПИСЕЙ ${db.entries.size} · ЛИЧНОСТЕЙ ${db.people.size} · $src · ОБНОВИТЬ ⟳"
     }
 
     /** Фальшивая телеметрия для атмосферы. */
@@ -206,6 +219,41 @@ class ScanActivity : Activity() {
         refreshFooter()
         setIdle()
         NfcRead.enable(this, adapter) { onTag(it) }
+        // код, прочитанный камерой, анализируем как метку
+        pendingQr?.let { r -> pendingQr = null; ui.post { if (!analyzing) analyze(r) } }
+    }
+
+    // ------------------------------------------------------------------ QR (камера)
+
+    private fun startQr() {
+        if (analyzing) return
+        if (sessionActive) stopAll()
+        fx.beep()
+        try {
+            IntentIntegrator(this).apply {
+                setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+                setPrompt("ОПТИЧЕСКИЙ СКАН · наведите сканер на код")
+                setBeepEnabled(false)
+                setOrientationLocked(true)
+                setBarcodeImageEnabled(false)
+            }.initiateScan()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Камера недоступна", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        val r = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+        if (r == null) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+        val text = r.contents?.trim().orEmpty()
+        if (text.isNotEmpty()) {
+            val read = TagRead("", listOf(text))
+            prefs.lastCodes = read.describe()
+            pendingQr = read
+        }
     }
 
     override fun onPause() {
@@ -233,7 +281,7 @@ class ScanActivity : Activity() {
             a == null -> {
                 radar.state = RadarView.State.OFFLINE
                 setStatus("NFC НЕДОСТУПЕН", Pal.ERROR)
-                log.text = "В этом телефоне нет NFC-модуля.\nСканирование меток невозможно."
+                log.text = "В этом телефоне нет NFC-модуля.\nДоступен только оптический скан (QR)."
                 scanBtn.visibility = View.GONE
             }
             !a.isEnabled -> {
@@ -463,8 +511,15 @@ class ScanActivity : Activity() {
         val result = Repo.get(this).find(read.candidates, m.id)
         radar.state = RadarView.State.LOCKED
         timer.text = "100%"
-        setStatus(if (result is Lookup.Found) "ОБЪЕКТ ИДЕНТИФИЦИРОВАН" else "АНАЛИЗ ЗАВЕРШЁН", accent)
-        if (result is Lookup.Found) fx.success() else fx.fail()
+        val ok = result is Lookup.Found || result is Lookup.Identified
+        setStatus(
+            when {
+                result is Lookup.Identified -> "ЛИЧНОСТЬ ИДЕНТИФИЦИРОВАНА"
+                ok -> "ОБЪЕКТ ИДЕНТИФИЦИРОВАН"
+                else -> "АНАЛИЗ ЗАВЕРШЁН"
+            }, accent
+        )
+        if (ok) fx.success() else fx.fail()
         fx.vibrate(60, 60, 160)
         ui.postDelayed({
             if (!analyzing) return@postDelayed
