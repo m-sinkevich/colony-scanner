@@ -11,6 +11,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.content.pm.PackageManager
 import com.google.zxing.integration.android.IntentIntegrator
+import android.Manifest
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
@@ -33,6 +34,10 @@ import kotlin.random.Random
  * пока не будет найдена метка, не истечёт время или игрок не нажмёт «Отменить».
  */
 class ScanActivity : Activity() {
+
+    private companion object {
+        const val REQ_CAMERA = 41
+    }
 
     private lateinit var prefs: Prefs
     private lateinit var fx: Fx
@@ -135,7 +140,7 @@ class ScanActivity : Activity() {
         root.addView(scanBtn, lp().apply { topMargin = dp(12) })
 
         // --- оптический сканер: QR-коды бейджей и объектов (камера) ---
-        qrBtn = termButton("◎  ОПТИЧЕСКИЙ СКАН · QR", Pal.DEFAULT_ACCENT) { startQr() }.apply {
+        qrBtn = termButton("◎  ОПТИЧЕСКИЙ СКАН", Pal.DEFAULT_ACCENT) { startQr() }.apply {
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
             val p = dp(10); setPadding(p, p, p, p)
             visibility = if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) View.VISIBLE else View.GONE
@@ -228,6 +233,22 @@ class ScanActivity : Activity() {
     private fun startQr() {
         if (analyzing) return
         if (sessionActive) stopAll()
+        // сначала разрешение на камеру — системный запрос, без него сканер не откроется
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
+            return
+        }
+        launchQr()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_CAMERA) return
+        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) ui.post { launchQr() }
+        else Toast.makeText(this, "Нет доступа к камере — разрешите его в настройках телефона", Toast.LENGTH_LONG).show()
+    }
+
+    private fun launchQr() {
         fx.beep()
         try {
             IntentIntegrator(this).apply {
@@ -360,7 +381,7 @@ class ScanActivity : Activity() {
         lastSecond = -1L
         radar.state = RadarView.State.SCANNING
         radar.progress = 0f
-        setStatus("ПОИСК СИГНАЛА…", accent)
+        setStatus("ПОИСК СИГНАТУР…", accent)
         timerLabel.text = if (sessionLimitMs > 0) "ОСТАЛОСЬ" else "ВРЕМЯ СЕССИИ"
         timer.setTextColor(accent)
         timer.glow(accent, 10f)
@@ -424,7 +445,7 @@ class ScanActivity : Activity() {
         timer.text = "00:00"
         timer.setTextColor(Pal.ERROR)
         radar.state = RadarView.State.FAIL
-        setStatus("СИГНАЛ НЕ ОБНАРУЖЕН", Pal.ERROR)
+        setStatus("СИГНАТУРЫ НЕ ОБНАРУЖЕНЫ", Pal.ERROR)
         log.text = "Время сессии истекло.\nОбъект вне зоны действия сканера."
         fx.fail()
         fx.vibrate(120, 80, 120)
@@ -456,7 +477,7 @@ class ScanActivity : Activity() {
     }
 
     private val analysisPhrases = listOf(
-        "Сигнал захвачен. Фиксация…",
+        "Сигнатура захвачена. Фиксация…",
         "Декодирование сигнатуры…",
         "Сверка с архивом колонии…",
         "Расшифровка показаний…",
@@ -471,7 +492,7 @@ class ScanActivity : Activity() {
         timer.setTextColor(accent)
         timerLabel.text = "АНАЛИЗ"
         radar.state = RadarView.State.ANALYZING
-        setStatus("СИГНАЛ ЗАХВАЧЕН", accent)
+        setStatus("СИГНАТУРА ЗАХВАЧЕНА", accent)
         scanBtn.text = "АНАЛИЗ ДАННЫХ…"
         styleButton(scanBtn, accent, filled = true)
         scanBtn.isEnabled = false

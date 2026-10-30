@@ -70,4 +70,7 @@ android {
 dependencies {
     // оптический сканер QR (камера), работает без интернета
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // zxing использует ActivityCompat для запроса камеры, но сам эту библиотеку не подключает —
+    // без неё сканер падал при нажатии «Оптический скан»
+    implementation("androidx.core:core:1.13.1")
 }
