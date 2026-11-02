@@ -54,10 +54,14 @@ class QrActivity : ComponentActivity() {
         const val REQ = 4242
         const val EXTRA_TEXT = "text"
         const val EXTRA_PROMPT = "prompt"
-        fun intent(ctx: Context, prompt: String): Intent = Intent(ctx, QrActivity::class.java).putExtra(EXTRA_PROMPT, prompt)
+        const val EXTRA_SKIP = "skip"
+        /** skip — коды, которые не возвращать (уже внесённые кристаллы, если они ещё в кадре). */
+        fun intent(ctx: Context, prompt: String, skip: Collection<String> = emptyList()): Intent =
+            Intent(ctx, QrActivity::class.java).putExtra(EXTRA_PROMPT, prompt).putExtra(EXTRA_SKIP, skip.map { it.trim().uppercase() }.toTypedArray())
     }
 
     private lateinit var preview: PreviewView
+    private val skip: Set<String> by lazy { intent.getStringArrayExtra(EXTRA_SKIP)?.toSet() ?: emptySet() }
     private lateinit var overlay: Reticle
     private lateinit var status: TextView
     private lateinit var torchBtn: TextView
@@ -174,8 +178,10 @@ class QrActivity : ComponentActivity() {
         } catch (e: Exception) { img.close(); return }
         sc.process(input)
             .addOnSuccessListener { list ->
-                val text = list.firstOrNull { !it.rawValue.isNullOrBlank() }?.rawValue?.trim()
+                val all = list.mapNotNull { it.rawValue?.trim()?.takeIf { v -> v.isNotEmpty() } }
+                val text = all.firstOrNull { it.uppercase() !in skip }
                 if (text != null) found(text)
+                else if (all.isNotEmpty()) ui.post { overlay.seen(); status.text = "Кристалл ${all[0]} уже внесён — покажите следующий" }
                 else if (list.isNotEmpty()) ui.post { overlay.seen() }
             }
             .addOnCompleteListener { img.close() }

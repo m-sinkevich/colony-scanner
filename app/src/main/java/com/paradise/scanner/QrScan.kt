@@ -12,7 +12,8 @@ object QrScan {
 
     fun available(a: Activity) = a.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
 
-    fun start(a: Activity, prompt: String) {
+    fun start(a: Activity, prompt: String, skip: Collection<String> = emptyList()) {
+        pendingSkip = skip
         // сначала разрешение на камеру — системный запрос, без него сканер не откроется
         if (a.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             pendingPrompt = prompt
@@ -23,10 +24,11 @@ object QrScan {
     }
 
     private var pendingPrompt = ""
+    private var pendingSkip: Collection<String> = emptyList()
 
     private fun launch(a: Activity, prompt: String) {
         try {
-            a.startActivityForResult(QrActivity.intent(a, prompt), QrActivity.REQ)
+            a.startActivityForResult(QrActivity.intent(a, prompt, pendingSkip), QrActivity.REQ)
         } catch (e: Exception) {
             Toast.makeText(a, "Камера недоступна", Toast.LENGTH_SHORT).show()
         }

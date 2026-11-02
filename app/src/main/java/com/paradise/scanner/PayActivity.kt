@@ -82,7 +82,7 @@ class PayActivity : Activity() {
 
     private fun scan() {
         if (busy) return
-        QrScan.start(this, "ЭНЕРГИЯ · наведите на код кристалла")
+        QrScan.start(this, "ЭНЕРГИЯ · наведите на код кристалла", seen)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
