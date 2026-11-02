@@ -10,6 +10,11 @@ class Prefs(ctx: Context) {
         get() = p.getString("role", null)
         set(v) = p.edit().putString("role", v).apply()
 
+    /** Персонаж, вошедший в сканер (id из characters). Пусто — экран идентификации. */
+    var characterId: String?
+        get() = p.getString("character_id", null)
+        set(v) = p.edit().putString("character_id", v).apply()
+
     var supabaseUrl: String
         get() = p.getString("url", null)?.takeIf { it.isNotBlank() } ?: BuildConfig.SUPABASE_URL
         set(v) = p.edit().putString("url", v.trim()).apply()

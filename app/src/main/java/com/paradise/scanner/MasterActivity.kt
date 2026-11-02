@@ -43,7 +43,7 @@ class MasterActivity : Activity() {
 
         // --- метка ---
         section(root, "КОД МЕТКИ")
-        root.addView(label("Поднесите метку к телефону — здесь появится её код. Его нужно указать в столбце code таблицы scan_tags.", 12f, Pal.DIM), lp())
+        root.addView(label("Поднесите метку к телефону — здесь появится текст, записанный на неё (код объекта, например F3VP7T), и заводской UID.", 12f, Pal.DIM), lp())
         readout = label(prefs.lastCodes.ifBlank { "— метка ещё не считывалась —" }, 15f, Pal.TEXT, bold = true).apply {
             val p = dp(12)
             setPadding(p, p, p, p)
@@ -94,7 +94,7 @@ class MasterActivity : Activity() {
         root.addView(label("Если какие-то метки перестали читаться — включите «все типы».", 11f, Pal.DIM), lp().apply { topMargin = dp(4) })
 
         // --- профиль ---
-        section(root, "ПРОФИЛЬ СКАНЕРА")
+        section(root, "ОПЕРАТОР СКАНЕРА")
         roles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(roles, lp())
 
@@ -158,18 +158,21 @@ class MasterActivity : Activity() {
     private fun refresh() {
         val db = Repo.get(this)
         roles.removeAllViews()
-        val current = prefs.role
-        for (m in db.modes) {
-            val selected = m.id == current
-            roles.addView(termButton((if (selected) "● " else "") + m.name.uppercase() + "  [${m.id}]", m.color, filled = selected) {
-                prefs.role = m.id
-                toast("Профиль: ${m.name}")
-                refresh()
-            }, lp().apply { bottomMargin = dp(8) })
-        }
+        val p = db.person(prefs.characterId)
+        val kindName = mapOf("medic" to "медицинский", "tech" to "технический", "sci" to "научный")[p?.scannerMode] ?: "—"
+        roles.addView(label(if (p != null) "${p.name}\nСканер: $kindName" else "Никто не вошёл", 14f, Pal.TEXT, bold = true), lp())
+        roles.addView(label("Тип сканера задаётся персонажу в терминале мастера (Персонажи → Сканер NFC) и приходит при обновлении базы.", 11f, Pal.DIM), lp().apply { topMargin = dp(4) })
+        roles.addView(termButton("ВЫЙТИ ИЗ ПЕРСОНАЖА", Pal.WARN) {
+            p?.let { Store.log(this, it, "session_end", org.json.JSONObject().put("reason", "master")); Store.pushLater(this) }
+            prefs.characterId = null
+            toast("Оператор вышел — при возврате появится экран идентификации")
+            refresh()
+        }, lp().apply { topMargin = dp(8) })
+        val pend = Store.pending(this)
+        if (pend > 0) roles.addView(label("Не отправлено в базу событий: $pend (уйдут при обновлении базы)", 11f, Pal.WARN), lp().apply { topMargin = dp(6) })
         val perMode = db.entries.groupingBy { it.mode }.eachCount()
             .entries.joinToString(", ") { "${it.key}: ${it.value}" }
-        info.text = "В базе ${db.entries.size} записей (${perMode.ifBlank { "—" }}).\n" +
+        info.text = "Объектов контента: ${db.contents.size}, персонажей: ${db.people.size}, записей меток: ${db.entries.size} (${perMode.ifBlank { "—" }}).\n" +
             (if (db.fromServer) "Загружена с сервера." else "Сейчас используется встроенная демо-база.")
     }
 

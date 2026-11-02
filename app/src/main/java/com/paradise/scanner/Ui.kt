@@ -87,7 +87,8 @@ fun Context.termButton(text: String, color: Int, filled: Boolean = false, onClic
 fun styleButton(v: TextView, color: Int, filled: Boolean) {
     val ctx = v.context
     v.setTextColor(if (filled) Pal.BG else color)
-    v.background = HudDrawable(ctx, color, if (filled) color else Pal.withAlpha(color, 30), chamferDp = 12f, strokeDp = 1.6f)
+    v.background = Look.panel(ctx, color, if (filled) color else Pal.withAlpha(color, 30), chamferDp = 12f)
+    v.letterSpacing = Look.letter
     if (!filled) v.setShadowLayer(ctx.dpf(8f), 0f, 0f, Pal.withAlpha(color, 200)) else v.setShadowLayer(0f, 0f, 0f, 0)
 }
 

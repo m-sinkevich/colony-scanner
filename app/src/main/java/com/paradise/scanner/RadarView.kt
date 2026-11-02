@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.SweepGradient
 import android.os.SystemClock
@@ -23,6 +24,9 @@ class RadarView(ctx: Context) : View(ctx) {
         set(v) {
             field = v; shader = null; invalidate()
         }
+
+    var kind: Kind = Kind.TECH
+        set(v) { field = v; invalidate() }
 
     var state: State = State.IDLE
         set(v) {
@@ -77,6 +81,42 @@ class RadarView(ctx: Context) : View(ctx) {
         val c = current()
         val sw = context.dpf(1f)
 
+        when (kind) {
+            Kind.TECH -> drawTech(canvas, cx, cy, r, c, sw, dt)
+            Kind.MED -> drawMed(canvas, cx, cy, r, c, sw, dt)
+            Kind.SCI -> drawSci(canvas, cx, cy, r, c, sw, dt)
+        }
+
+        // кольцо прогресса
+        if (state == State.SCANNING || state == State.ANALYZING || state == State.LOCKED) {
+            arc.color = c
+            arc.strokeWidth = context.dpf(5f)
+            val o = r + context.dpf(3f)
+            rect.set(cx - o, cy - o, cx + o, cy + o)
+            canvas.drawArc(rect, -90f, 360f * (if (state == State.LOCKED) 1f else progress), false, arc)
+        }
+
+        // захват цели
+        if (state == State.LOCKED) {
+            val t = (now - stateSince) / 1000f
+            val pulse = 0.5f + 0.5f * sin(t * 10f)
+            ring.color = c
+            ring.strokeWidth = context.dpf(3f)
+            canvas.drawCircle(cx, cy, r * (0.22f + 0.04f * pulse), ring)
+            fill.color = Pal.withAlpha(c, 200)
+            canvas.drawCircle(cx, cy, r * 0.06f, fill)
+            ring.strokeWidth = sw
+        }
+
+        // центр
+        fill.color = c
+        canvas.drawCircle(cx, cy, context.dpf(3f), fill)
+
+        if (state != State.OFFLINE) postInvalidateOnAnimation()
+    }
+
+    /** Технический: радар с вращающимся лучом и отметками. */
+    private fun drawTech(canvas: Canvas, cx: Float, cy: Float, r: Float, c: Int, sw: Float, dt: Float) {
         // фон-диск
         fill.color = Pal.withAlpha(c, 14)
         canvas.drawCircle(cx, cy, r, fill)
@@ -186,32 +226,152 @@ class RadarView(ctx: Context) : View(ctx) {
             canvas.drawCircle(cx + cos(a).toFloat() * r * b.r, cy + sin(a).toFloat() * r * b.r, context.dpf(3.5f), fill)
         }
 
-        // кольцо прогресса
-        if (state == State.SCANNING || state == State.ANALYZING || state == State.LOCKED) {
-            arc.color = c
-            arc.strokeWidth = context.dpf(5f)
-            val o = r + context.dpf(3f)
-            rect.set(cx - o, cy - o, cx + o, cy + o)
-            canvas.drawArc(rect, -90f, 360f * (if (state == State.LOCKED) 1f else progress), false, arc)
-        }
+    }
 
-        // захват цели
-        if (state == State.LOCKED) {
-            val t = (now - stateSince) / 1000f
-            val pulse = 0.5f + 0.5f * sin(t * 10f)
-            ring.color = c
-            ring.strokeWidth = context.dpf(3f)
-            canvas.drawCircle(cx, cy, r * (0.22f + 0.04f * pulse), ring)
-            fill.color = Pal.withAlpha(c, 200)
-            canvas.drawCircle(cx, cy, r * 0.06f, fill)
+    private val busy get() = state == State.SCANNING || state == State.ANALYZING
+    private val path = Path()
+    private var beatT = 0f
+    private var ecgShift = 0f
+
+    /** Форма кардиограммы на отрезке 0..1: зубцы P, QRS, T. */
+    private fun ecg(u: Float): Float {
+        val x = ((u % 1f) + 1f) % 1f
+        fun bump(c0: Float, w: Float, h: Float) = h * kotlin.math.exp(-((x - c0) / w) * ((x - c0) / w))
+        return bump(0.18f, 0.035f, 0.12f) - bump(0.36f, 0.012f, 0.18f) + bump(0.40f, 0.014f, 1f) - bump(0.44f, 0.014f, 0.32f) + bump(0.66f, 0.06f, 0.24f)
+    }
+
+    /** Медицинский: биомонитор — кардиограмма, пульсирующий крест, кольца пульса. */
+    private fun drawMed(canvas: Canvas, cx: Float, cy: Float, r: Float, c: Int, sw: Float, dt: Float) {
+        val bpm = when (state) { State.SCANNING -> 96f; State.ANALYZING -> 140f; State.IDLE -> 64f; else -> 50f }
+        if (state != State.OFFLINE) { beatT += dt * bpm / 60f; ecgShift += dt * (bpm / 60f) * 0.5f }
+        val phase = beatT % 1f
+        val pulse = kotlin.math.exp(-phase * 7f)
+
+        fill.color = Pal.withAlpha(c, 12)
+        canvas.drawCircle(cx, cy, r, fill)
+        // сетка монитора
+        ring.strokeWidth = sw
+        ring.color = Pal.withAlpha(c, 26)
+        val step = r / 5f
+        var k = -5
+        while (k <= 5) {
+            val off = k * step
+            val half = kotlin.math.sqrt((r * r - off * off).coerceAtLeast(0f))
+            canvas.drawLine(cx + off, cy - half, cx + off, cy + half, ring)
+            canvas.drawLine(cx - half, cy + off, cx + half, cy + off, ring)
+            k++
+        }
+        ring.color = Pal.withAlpha(c, 160)
+        ring.strokeWidth = context.dpf(2f)
+        canvas.drawCircle(cx, cy, r, ring)
+        ring.strokeWidth = sw
+        ring.color = Pal.withAlpha(c, 60)
+        canvas.drawCircle(cx, cy, r * 0.62f, ring)
+        // кольца пульса
+        if (state != State.OFFLINE) for (j in 0 until 2) {
+            val f = ((phase + j * 0.5f) % 1f)
+            ring.color = Pal.withAlpha(Look.accent2, ((1f - f) * (if (busy) 150 else 70)).toInt())
+            ring.strokeWidth = context.dpf(2f)
+            canvas.drawCircle(cx, cy, r * (0.25f + 0.75f * f), ring)
+        }
+        // кардиограмма — внутри круга
+        canvas.save()
+        path.reset(); path.addCircle(cx, cy, r - sw, Path.Direction.CW)
+        canvas.clipPath(path)
+        path.reset()
+        val amp = r * (if (busy) 0.42f else 0.3f)
+        val n = 120
+        for (i in 0..n) {
+            val x = cx - r + 2 * r * i / n
+            val y = cy - amp * ecg(i / n.toFloat() * 2f - ecgShift)
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        arc.color = Pal.withAlpha(c, 230)
+        arc.strokeWidth = context.dpf(2.4f)
+        arc.pathEffect = null
+        canvas.drawPath(path, arc)
+        canvas.restore()
+        // крест в центре, «бьётся» с пульсом
+        val s = r * (0.13f + 0.03f * pulse)
+        val w = s * 0.36f
+        fill.color = Pal.withAlpha(Look.accent2, (150 + 100 * pulse).toInt())
+        canvas.drawRect(cx - w, cy - s, cx + w, cy + s, fill)
+        canvas.drawRect(cx - s, cy - w, cx + s, cy + w, fill)
+        // деления по краю
+        ring.color = Pal.withAlpha(c, 110)
+        ring.strokeWidth = sw
+        for (i in 0 until 60) {
+            val a = Math.toRadians(i * 6.0)
+            val len = if (i % 5 == 0) context.dpf(8f) else context.dpf(3f)
+            val ca = cos(a).toFloat(); val sa = sin(a).toFloat()
+            canvas.drawLine(cx + ca * (r + context.dpf(4f)), cy + sa * (r + context.dpf(4f)), cx + ca * (r + context.dpf(4f) + len), cy + sa * (r + context.dpf(4f) + len), ring)
+        }
+    }
+
+    private val bars = FloatArray(72) { Random.nextFloat() }
+
+    /** Научный: спектрометр — шестиугольные кольца, спектр по кругу, спираль в центре. */
+    private fun drawSci(canvas: Canvas, cx: Float, cy: Float, r: Float, c: Int, sw: Float, dt: Float) {
+        val spd = when (state) { State.SCANNING -> 70f; State.ANALYZING -> 160f; State.IDLE -> 18f; else -> 0f }
+        angle = (angle + spd * dt) % 360f
+        fill.color = Pal.withAlpha(c, 12)
+        canvas.drawCircle(cx, cy, r, fill)
+        // шестиугольные кольца
+        ring.strokeWidth = sw
+        for (i in 1..4) {
+            ring.color = Pal.withAlpha(c, if (i == 4) 150 else 50)
+            val rr = r * i / 4f
+            path.reset()
+            for (k in 0..6) {
+                val a = Math.toRadians(60.0 * k + 30 + (if (i % 2 == 0) angle * 0.2 else -angle * 0.2))
+                val x = cx + cos(a).toFloat() * rr; val y = cy + sin(a).toFloat() * rr
+                if (k == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            canvas.drawPath(path, ring)
+        }
+        // спектр по кругу
+        val target = if (busy) 1f else 0.35f
+        for (k in bars.indices) {
+            val goal = target * (0.25f + 0.75f * ((sin(angle / 30f + k * 0.7f) + 1f) / 2f) * (0.5f + 0.5f * Random.nextFloat()))
+            bars[k] += (goal - bars[k]) * (dt * 6f).coerceAtMost(1f)
+            val a = Math.toRadians(k * 5.0 + angle * 0.5)
+            val ca = cos(a).toFloat(); val sa = sin(a).toFloat()
+            val r0 = r + context.dpf(6f)
+            val r1 = r0 + context.dpf(4f) + bars[k] * context.dpf(22f)
+            val hue = Color.HSVToColor(floatArrayOf(90f + 120f * (k / bars.size.toFloat()), 0.75f, 1f))
+            ring.color = Pal.withAlpha(if (state == State.FAIL) Pal.ERROR else hue, 200)
+            ring.strokeWidth = context.dpf(2.6f)
+            canvas.drawLine(cx + ca * r0, cy + sa * r0, cx + ca * r1, cy + sa * r1, ring)
+        }
+        ring.strokeWidth = sw
+        // двойная спираль в центре
+        val h = r * 0.62f
+        val turns = 2.2f
+        for (i in 0..36) {
+            val u = i / 36f
+            val y = cy - h + 2 * h * u
+            val ph = Math.toRadians((u * 360f * turns + angle * 2f).toDouble())
+            val x1 = cx + cos(ph).toFloat() * r * 0.22f
+            val x2 = cx - cos(ph).toFloat() * r * 0.22f
+            val front = sin(ph).toFloat()
+            if (i % 3 == 0) {
+                ring.color = Pal.withAlpha(c, 60)
+                canvas.drawLine(x1, y, x2, y, ring)
+            }
+            fill.color = Pal.withAlpha(c, (140 + 110 * front).toInt().coerceIn(40, 255))
+            canvas.drawCircle(x1, y, context.dpf(2.6f + front), fill)
+            fill.color = Pal.withAlpha(Look.accent2, (140 - 110 * front).toInt().coerceIn(40, 255))
+            canvas.drawCircle(x2, y, context.dpf(2.6f - front), fill)
+        }
+        // сканирующая волна
+        if (busy) {
+            waveT += dt * (if (state == State.ANALYZING) 1.4f else 0.6f)
+            val f = waveT % 1f
+            ring.color = Pal.withAlpha(c, ((1f - f) * 150).toInt())
+            ring.strokeWidth = context.dpf(2f)
+            canvas.drawCircle(cx, cy, r * f, ring)
             ring.strokeWidth = sw
         }
-
-        // центр
-        fill.color = c
-        canvas.drawCircle(cx, cy, context.dpf(3f), fill)
-
-        if (state != State.OFFLINE) postInvalidateOnAnimation()
     }
 
     override fun onDetachedFromWindow() {

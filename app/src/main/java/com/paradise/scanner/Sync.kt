@@ -22,7 +22,8 @@ object Sync {
     private const val PAGE = 1000
 
     /** settings — список применённых настроек из терминала мастера (пусто, если не заданы). */
-    class Report(val modes: Int, val tags: Int, val images: Int, val imageErrors: Int, val settings: List<String> = emptyList(), val people: Int = 0)
+    class Report(val modes: Int, val tags: Int, val images: Int, val imageErrors: Int, val settings: List<String> = emptyList(), val people: Int = 0,
+                 val contents: Int = 0, val sent: Int = 0)
 
     /** Сайт «Терминала колониста»: фото персонажей из каталога лежат там (catalog/…, badges/…). */
     const val SITE = "https://m-sinkevich.github.io/paradise/"
@@ -53,6 +54,10 @@ object Sync {
         if (base.isEmpty() || key.isEmpty()) throw IOException("Не задан адрес Supabase или ключ (служебное меню)")
 
         val old = Repo.get(ctx)
+
+        // сначала отправляем то, что сканер накопил без сети (открытия, журнал)
+        progress("Отправка журнала сканера…")
+        val sent = Store.push(ctx)
 
         progress("Загрузка типов сканеров…")
         val modes: List<Mode> = try {
@@ -158,14 +163,48 @@ object Sync {
                     }
                     local?.let { usedFiles.add(it) }
                 }
-                list.add(Person(str(x, "id"), str(x, "name"), codes, str(x, "tagline"), moduleNames[moduleId] ?: "", local))
+                list.add(Person(str(x, "id"), str(x, "name"), codes, str(x, "tagline"), moduleNames[moduleId] ?: "", local,
+                    str(x, "scanner_mode").ifBlank { null }, moduleId.ifBlank { null }))
             }
             list
         } catch (e: HttpError) {
             if (e.code == 404 || e.code == 400) old.people else throw e
         }
 
-        val db = Database(modes, entries, people, System.currentTimeMillis(), true)
+        // контент «Терминала колониста»: объекты и все их картинки, видео, звук — заранее, для работы без сети
+        progress("Загрузка контента…")
+        val contents = ArrayList<ContentItem>()
+        val media = HashMap<String, String>()
+        try {
+            val arr = fetchAll(base, key, "content_items", "trigger_code.asc")
+            for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { contents.add(ContentItem(it)) }
+        } catch (e: HttpError) {
+            if (e.code != 404 && e.code != 400) throw e
+        }
+        val urls = contents.flatMap { it.mediaUrls() }.distinct()
+        urls.forEachIndexed { k, raw ->
+            val url = imageUrl(base, raw)
+            val local = downloaded[url] ?: run {
+                progress("Медиа ${k + 1} из ${urls.size}")
+                val f = try { download(url, key, dir).also { imgOk++ } } catch (e: Exception) { imgErr++; fileNameFor(url).takeIf { File(dir, it).exists() } }
+                downloaded[url] = f; f
+            }
+            if (local != null) { media[raw] = local; usedFiles.add(local) }
+        }
+        // прогресс персонажей (что уже открывали) — для «один раз» и таймеров
+        val prog = HashMap<String, Prog>()
+        try {
+            val arr = fetchAll(base, key, "character_progress", "character_id.asc")
+            for (i in 0 until arr.length()) {
+                val x = arr.getJSONObject(i)
+                val f = str(x, "first_opened_at").let { s -> if (s.isBlank()) 0L else parseIso(s) }
+                prog[str(x, "character_id") + "|" + str(x, "content_id")] = Prog(x.optInt("play_count", 0), f)
+            }
+        } catch (e: HttpError) {
+            if (e.code != 404 && e.code != 400) throw e
+        }
+
+        val db = Database(modes, entries, people, System.currentTimeMillis(), true, contents, media, prog)
         val tmp = File(ctx.filesDir, "db.json.tmp")
         tmp.writeText(db.toJson().toString())
         if (!tmp.renameTo(Repo.dbFile(ctx))) {
@@ -180,7 +219,7 @@ object Sync {
         progress("Настройки сканера…")
         val applied = applySettings(base, key, prefs)
 
-        return Report(modes.size, entries.size, imgOk, imgErr, applied, people.size)
+        return Report(modes.size, entries.size, imgOk, imgErr, applied, people.size, contents.size, sent)
     }
 
     /**
@@ -243,11 +282,17 @@ object Sync {
         return imageUrl(base, raw)
     }
 
+    private fun parseIso(s: String): Long = try {
+        java.time.OffsetDateTime.parse(s.replace(' ', 'T')).toInstant().toEpochMilli()
+    } catch (e: Exception) {
+        try { java.time.LocalDateTime.parse(s.substringBefore('+').replace(' ', 'T')).toInstant(java.time.ZoneOffset.UTC).toEpochMilli() } catch (e2: Exception) { 0L }
+    }
+
     private fun fileNameFor(url: String): String {
         val md = MessageDigest.getInstance("SHA-1").digest(url.toByteArray())
         val hash = md.joinToString("") { "%02x".format(it) }.take(20)
         val ext = url.substringBefore('?').substringAfterLast('.', "").lowercase()
-            .takeIf { it in setOf("png", "jpg", "jpeg", "webp", "gif") } ?: "img"
+            .takeIf { it in setOf("png", "jpg", "jpeg", "webp", "gif", "mp4", "webm", "mov", "m4v", "mp3", "m4a", "ogg", "oga", "wav", "aac", "opus") } ?: "img"
         return "$hash.$ext"
     }
 

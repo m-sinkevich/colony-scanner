@@ -32,15 +32,74 @@ data class Person(
     val name: String,
     val codes: List<String>,   // код бейджа (qr_code) и номер бейджа (badge_id)
     val tagline: String,
-    val module: String,        // модуль приписки
+    val module: String,        // название модуля приписки
     val photo: String?,        // имя файла в локальном кэше
+    val scannerMode: String? = null,   // medic | tech | sci; пусто — сканер ему недоступен
+    val moduleId: String? = null,      // id модуля приписки — для «доступно в модулях»
 )
+
+/* ---------------- контент «Терминала колониста» (content_items) ---------------- */
+data class Block(val type: String, val md: String, val url: String?, val urls: List<String>, val caption: String, val style: String)
+data class Choice(val label: String, val next: String)
+data class Variant(val chars: List<String>, val mods: List<String>, val body: String, val blocks: List<Block>, val choices: List<Choice>?)
+
+class ContentItem(val raw: JSONObject) {
+    val id: String = raw.optString("id")
+    val code: String = raw.optString("trigger_code")
+    val type: String = raw.optString("type", "text").ifBlank { "text" }
+    val body: String = if (raw.isNull("body")) "" else raw.optString("body")
+    val playback: String = raw.optString("playback", "unlimited")
+    val moduleScope: List<String> = strs(raw.optJSONArray("module_scope"))
+    val charScope: List<String> = strs(raw.optJSONArray("character_scope"))
+    val unlockType: String = raw.optJSONObject("unlock_condition")?.optString("type")?.ifBlank { null } ?: "always"
+    val timerMinutes: Double = raw.optJSONObject("unlock_condition")?.optDouble("timerMinutes", 0.0) ?: 0.0
+    val choices: List<Choice> = choicesOf(raw.optJSONArray("choice_options"))
+    val variants: List<Variant> = (raw.optJSONArray("variants") ?: JSONArray()).let { a ->
+        (0 until a.length()).mapNotNull { i -> a.optJSONObject(i) }.map { v ->
+            Variant(strs(v.optJSONArray("character_ids")), strs(v.optJSONArray("module_ids")), v.optString("body"),
+                blocksOf(v.optJSONArray("blocks")), if (v.has("choice_options") && !v.isNull("choice_options")) choicesOf(v.optJSONArray("choice_options")) else null)
+        }
+    }
+
+    /** Блоки страницы; у старых объектов — картинка/медиа + текст. */
+    fun blocks(): List<Block> {
+        val b = blocksOf(raw.optJSONArray("blocks"))
+        if (b.isNotEmpty()) return b
+        val out = ArrayList<Block>()
+        val media = if (raw.isNull("media_url")) "" else raw.optString("media_url")
+        if (media.isNotBlank() && type in listOf("image", "video", "audio")) out.add(Block(type, "", media, emptyList(), "", ""))
+        if (body.isNotBlank()) out.add(Block("text", body, null, emptyList(), "", ""))
+        return out
+    }
+
+    /** Все ссылки на медиафайлы объекта (для скачивания заранее). */
+    fun mediaUrls(): List<String> {
+        val all = ArrayList<Block>(blocks())
+        variants.forEach { all.addAll(it.blocks) }
+        return all.flatMap { listOfNotNull(it.url) + it.urls }.filter { it.isNotBlank() }.distinct()
+    }
+
+    companion object {
+        fun strs(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() }
+        fun choicesOf(a: JSONArray?): List<Choice> = if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+            .map { Choice(it.optString("label"), it.optString("nextContentId")) }.filter { it.label.isNotBlank() && it.next.isNotBlank() }
+        fun blocksOf(a: JSONArray?): List<Block> = if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map {
+            Block(it.optString("type", "text"), it.optString("md"), it.optString("url").ifBlank { null }, strs(it.optJSONArray("urls")),
+                it.optString("caption"), it.optString("style"))
+        }
+    }
+}
+
+/** Прогресс персонажа по объекту (как character_progress на сервере). */
+data class Prog(val count: Int, val firstAt: Long)
 
 sealed class Lookup {
     /** person — если код метки одновременно код бейджа персонажа. */
     data class Found(val entry: Entry, val code: String, val person: Person? = null) : Lookup()
     /** Бейдж персонажа, для которого у этого профиля нет отдельной записи. */
     data class Identified(val person: Person, val code: String) : Lookup()
+    /** Объект контента «Терминала колониста». */
+    data class Content(val item: ContentItem, val code: String) : Lookup()
     data class WrongScanner(val code: String) : Lookup()
     data class Unknown(val code: String) : Lookup()
 }
@@ -49,6 +108,18 @@ object Codes {
     /** Нормализация: регистр, пробелы, двоеточия и дефисы не важны — "04:a2-b3" == "04A2B3". */
     fun norm(s: String): String =
         s.trim().uppercase().filter { !it.isWhitespace() && it != ':' && it != '-' }
+
+    private val TOKEN = Regex("[A-Za-z0-9]{4,12}")
+
+    /** Варианты кода из прочитанного текста: весь текст, затем отдельные «слова» вида F3VP7T. */
+    fun candidates(texts: List<String>): List<String> {
+        val out = LinkedHashSet<String>()
+        texts.forEach { s ->
+            norm(s).takeIf { it.isNotEmpty() }?.let { out.add(it) }
+            TOKEN.findAll(s).forEach { out.add(it.value.uppercase()) }
+        }
+        return out.toList()
+    }
 }
 
 class Database(
@@ -57,10 +128,15 @@ class Database(
     val people: List<Person>,
     val updatedAt: Long,
     val fromServer: Boolean,
+    val contents: List<ContentItem> = emptyList(),
+    val media: Map<String, String> = emptyMap(),          // ссылка → локальный файл
+    val progress: Map<String, Prog> = emptyMap(),          // "персонаж|объект" → прогресс на момент загрузки
 ) {
     private val index = HashMap<String, Entry>()
     private val knownCodes = HashSet<String>()
     private val peopleIndex = HashMap<String, Person>()
+    private val contentByCode = HashMap<String, ContentItem>()
+    private val contentById = HashMap<String, ContentItem>()
 
     init {
         for (p in people) for (code in p.codes) {
@@ -73,16 +149,25 @@ class Database(
             index["$c|${e.mode}"] = e
             knownCodes.add(c)
         }
+        for (ci in contents) {
+            contentById[ci.id] = ci
+            Codes.norm(ci.code).takeIf { it.isNotEmpty() }?.let { contentByCode[it] = ci }
+        }
     }
 
     fun mode(id: String?): Mode? = modes.firstOrNull { it.id == id }
+    fun person(id: String?): Person? = people.firstOrNull { it.id == id }
+    fun personByCode(code: String): Person? = peopleIndex[Codes.norm(code)]
+    fun content(id: String?): ContentItem? = id?.let { contentById[it] }
+    fun local(url: String?): String? = url?.let { media[it] }
 
     /**
-     * candidates — коды, считанные с метки, в порядке приоритета
-     * (сначала записанный на метку текст, потом заводской UID).
+     * candidates — коды, считанные с метки или QR, в порядке приоритета.
+     * Сначала контент терминала, затем записи меток сканера, затем бейджи персонажей.
      */
     fun find(candidates: List<String>, modeId: String): Lookup {
         val norm = candidates.map { Codes.norm(it) }.filter { it.isNotEmpty() }
+        for (c in norm) contentByCode[c]?.let { return Lookup.Content(it, c) }
         for (c in norm) {
             val e = index["$c|$modeId"] ?: index["$c|*"]
             if (e != null) return Lookup.Found(e, c, peopleIndex[c])
@@ -113,9 +198,14 @@ class Database(
             pp.put(
                 JSONObject().put("id", it.id).put("name", it.name).put("codes", JSONArray(it.codes))
                     .put("tagline", it.tagline).put("module", it.module).put("photo", it.photo ?: JSONObject.NULL)
+                    .put("scanner_mode", it.scannerMode ?: JSONObject.NULL).put("module_id", it.moduleId ?: JSONObject.NULL)
             )
         }
+        val ca = JSONArray(); contents.forEach { ca.put(it.raw) }
+        val md = JSONObject(); media.forEach { (k, v) -> md.put(k, v) }
+        val pr = JSONObject(); progress.forEach { (k, v) -> pr.put(k, JSONObject().put("n", v.count).put("f", v.firstAt)) }
         return JSONObject().put("updated_at", updatedAt).put("from_server", fromServer).put("modes", m).put("tags", t).put("people", pp)
+            .put("contents", ca).put("media", md).put("progress", pr)
     }
 
     companion object {
@@ -159,10 +249,19 @@ class Database(
                         tagline = x.optString("tagline"),
                         module = x.optString("module"),
                         photo = if (x.isNull("photo")) null else x.optString("photo").ifBlank { null },
+                        scannerMode = if (x.isNull("scanner_mode")) null else x.optString("scanner_mode").ifBlank { null },
+                        moduleId = if (x.isNull("module_id")) null else x.optString("module_id").ifBlank { null },
                     )
                 )
             }
-            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false))
+            val contents = ArrayList<ContentItem>()
+            val ca = o.optJSONArray("contents") ?: JSONArray()
+            for (i in 0 until ca.length()) ca.optJSONObject(i)?.let { contents.add(ContentItem(it)) }
+            val media = HashMap<String, String>()
+            o.optJSONObject("media")?.let { md -> md.keys().forEach { k -> media[k] = md.optString(k) } }
+            val progress = HashMap<String, Prog>()
+            o.optJSONObject("progress")?.let { pr -> pr.keys().forEach { k -> pr.optJSONObject(k)?.let { progress[k] = Prog(it.optInt("n"), it.optLong("f")) } } }
+            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress)
         }
     }
 }

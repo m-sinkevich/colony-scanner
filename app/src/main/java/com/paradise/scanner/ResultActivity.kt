@@ -46,10 +46,15 @@ class ResultActivity : Activity() {
                 .putExtra(K_PERSON_LINE, listOf(p.name, p.module).filter { it.isNotBlank() }.joinToString(" · "))
         }
 
+        /** Объект найден, но доступ закрыт (правила мастерки). */
+        fun denied(ctx: Context, mode: Mode, title: String, body: String): Intent =
+            Intent(ctx, ResultActivity::class.java).putExtra(K_MODE_NAME, mode.name).putExtra(K_COLOR, Look.accent)
+                .putExtra(K_KIND, "denied").putExtra(K_TITLE, title).putExtra(K_BODY, body)
+
         fun intent(ctx: Context, mode: Mode, r: Lookup): Intent {
             val i = Intent(ctx, ResultActivity::class.java)
                 .putExtra(K_MODE_NAME, mode.name)
-                .putExtra(K_COLOR, mode.color)
+                .putExtra(K_COLOR, Look.accent)
             when (r) {
                 is Lookup.Found -> {
                     i.putExtra(K_KIND, "found")
@@ -66,6 +71,7 @@ class ResultActivity : Activity() {
                         .putExtra(K_BODY, personInfo(r.person))
                         .putExtra(K_IMAGE, r.person.photo)
                 }
+                is Lookup.Content -> i.putExtra(K_KIND, "unknown").putExtra(K_CODE, r.code)
                 is Lookup.WrongScanner -> i.putExtra(K_KIND, "wrong").putExtra(K_CODE, r.code)
                 is Lookup.Unknown -> i.putExtra(K_KIND, "unknown").putExtra(K_CODE, r.code)
             }
@@ -81,6 +87,7 @@ class ResultActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Look.apply(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         fx = Fx(this)
 
@@ -89,7 +96,7 @@ class ResultActivity : Activity() {
         val modeName = intent.getStringExtra(K_MODE_NAME) ?: ""
         val accent = when (kind) {
             "found", "person" -> intent.getIntExtra(K_COLOR, Pal.DEFAULT_ACCENT)
-            "wrong" -> Pal.WARN
+            "wrong", "denied" -> Pal.WARN
             else -> Pal.ERROR
         }
 
@@ -101,6 +108,11 @@ class ResultActivity : Activity() {
                 title = intent.getStringExtra(K_TITLE).orEmpty()
                 body = intent.getStringExtra(K_BODY).orEmpty()
                 image = intent.getStringExtra(K_IMAGE)
+            }
+            "denied" -> {
+                title = intent.getStringExtra(K_TITLE).orEmpty()
+                body = intent.getStringExtra(K_BODY).orEmpty()
+                image = null
             }
             "wrong" -> {
                 title = "АНАЛИЗ НЕВОЗМОЖЕН"
@@ -132,7 +144,7 @@ class ResultActivity : Activity() {
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(14))
-            background = HudDrawable(context, accent, Pal.withAlpha(accent, 22), chamferDp = 16f)
+            background = Look.panel(context, accent, Pal.withAlpha(accent, 22), chamferDp = 16f)
         }
         head.addView(label(kicker, 11f, accent, bold = true).apply { letterSpacing = 0.16f }, lp())
         head.addView(label("${modeName.uppercase()} · $time", 10f, Pal.DIM).apply { letterSpacing = 0.06f }, lp().apply { topMargin = dp(2) })
@@ -154,7 +166,7 @@ class ResultActivity : Activity() {
         val bmp = Repo.loadImage(this, image, maxW)
         if (bmp != null) {
             val frame = FrameLayout(this).apply {
-                background = HudDrawable(context, accent, 0xCC060D11.toInt(), chamferDp = 14f)
+                background = Look.panel(context, accent, 0xCC060D11.toInt(), chamferDp = 14f)
                 val p = dp(6)
                 setPadding(p, p, p, p)
             }
@@ -172,7 +184,7 @@ class ResultActivity : Activity() {
 
         bodyView = label("", 16f, Pal.TEXT).apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = HudDrawable(context, Pal.withAlpha(accent, 150), 0xCC060D11.toInt(), chamferDp = 12f, brackets = false)
+            background = Look.panel(context, Pal.withAlpha(accent, 150), 0xCC060D11.toInt(), chamferDp = 12f, brackets = false)
         }
         root.addView(bodyView, lp())
         root.addView(View(this), lp(h = 0, weight = 1f))
@@ -180,7 +192,7 @@ class ResultActivity : Activity() {
         bodyView.setOnClickListener { showAll() }
         root.setOnClickListener { showAll() }
 
-        val back = termButton("НОВОЕ СКАНИРОВАНИЕ", accent) { finish() }
+        val back = termButton(Look.againLabel, accent) { finish() }
         root.addView(back, lp().apply { topMargin = dp(18) })
 
         setContentView(spaceScreen(scroll, accent).first)

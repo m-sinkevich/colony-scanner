@@ -27,6 +27,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.random.Random
+import org.json.JSONObject
 
 /**
  * Главный экран — прибор-сканер.
@@ -62,7 +63,8 @@ class ScanActivity : Activity() {
     private lateinit var footer: TextView
 
     private var mode: Mode? = null
-    private val accent: Int get() = mode?.color ?: Pal.DEFAULT_ACCENT
+    private var person: Person? = null
+    private val accent: Int get() = Look.accent
 
     private var sessionActive = false
     private var analyzing = false
@@ -177,17 +179,22 @@ class ScanActivity : Activity() {
     }
 
     private fun applyMode() {
-        val m = mode ?: return
-        val c = m.color
-        header.text = m.name.uppercase()
+        val c = Look.accent
+        kicker.text = "${Look.kicker} · ${ResultActivity.GAME_YEAR} · v${BuildConfig.VERSION_NAME}"
+        header.text = Look.title
         header.setTextColor(c)
         header.glow(c, 12f)
-        subtitle.text = m.subtitle
+        header.letterSpacing = Look.letter
+        val p = person
+        subtitle.text = if (p != null) "ОПЕРАТОР: ${p.name.uppercase()}" + (if (p.module.isNotBlank()) " · ${p.module.uppercase()}" else "") else (mode?.subtitle ?: "")
+        subtitle.setTextColor(Pal.TEXT)
+        radar.kind = Look.kind
         radar.color = c
         stars.accent = c
-        headerPanel.background = HudDrawable(this, c, Pal.withAlpha(c, 18), chamferDp = 16f)
-        logPanel.background = HudDrawable(this, Pal.withAlpha(c, 160), 0xCC060D11.toInt(), chamferDp = 10f, brackets = false)
+        headerPanel.background = Look.panel(this, c, Pal.withAlpha(c, 18), chamferDp = 16f)
+        logPanel.background = Look.panel(this, Pal.withAlpha(c, 160), 0xCC060D11.toInt(), chamferDp = 10f, brackets = false)
         if (!sessionActive && !analyzing) styleButton(scanBtn, c, filled = false)
+        qrBtn.text = Look.opticLabel
         styleButton(qrBtn, c, filled = false)
     }
 
@@ -196,17 +203,14 @@ class ScanActivity : Activity() {
         val whenStr = if (db.updatedAt > 0)
             SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(db.updatedAt)) else "—"
         val src = if (db.fromServer) "БАЗА $whenStr" else "ДЕМО-БАЗА"
-        footer.text = "◇ ЗАПИСЕЙ ${db.entries.size} · ЛИЧНОСТЕЙ ${db.people.size} · $src · ОБНОВИТЬ ⟳"
+        val pend = Store.pending(this)
+        footer.text = "◇ ОБЪЕКТОВ ${db.contents.size} · $src" + (if (pend > 0) " · НЕ ОТПРАВЛЕНО $pend" else "") + " · ОБНОВИТЬ ⟳"
     }
 
     /** Фальшивая телеметрия для атмосферы. */
     private val telemetryTick = object : Runnable {
         override fun run() {
-            val sig = if (sessionActive || analyzing) -40 - Random.nextInt(30) else -85 - Random.nextInt(10)
-            val rad = 0.08 + Random.nextDouble() * 0.09
-            val temp = 17 + Random.nextInt(4)
-            val grav = 0.91 + Random.nextDouble() * 0.02
-            telemetry.text = String.format(Locale.US, "SIG %ddB ◇ ФОН %.2f мЗв ◇ T %+d°C ◇ g %.2f", sig, rad, temp, grav)
+            telemetry.text = Look.telemetry(sessionActive || analyzing)
             ui.postDelayed(this, 900)
         }
     }
@@ -215,11 +219,7 @@ class ScanActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        mode = Repo.get(this).mode(prefs.role)
-        if (mode == null) {
-            startActivity(Intent(this, RoleActivity::class.java))
-            return
-        }
+        if (!resolveOperator()) return
         applyMode()
         refreshFooter()
         setIdle()
@@ -228,48 +228,39 @@ class ScanActivity : Activity() {
         pendingQr?.let { r -> pendingQr = null; ui.post { if (!analyzing) analyze(r) } }
     }
 
+    /** Вошедший персонаж и его тип сканера; без допуска — экран идентификации. */
+    private fun resolveOperator(): Boolean {
+        val db = Repo.get(this)
+        val p = db.person(prefs.characterId)
+        if (p == null || p.scannerMode !in listOf("medic", "tech", "sci")) {
+            if (p != null) prefs.characterId = null   // тип сканера сняли в мастерке
+            startActivity(Intent(this, LoginActivity::class.java))
+            return false
+        }
+        person = p
+        if (prefs.role != p.scannerMode) prefs.role = p.scannerMode
+        Look.kind = Look.of(p.scannerMode)
+        mode = db.mode(p.scannerMode) ?: Mode(p.scannerMode!!, Look.title, Look.accent, "", "")
+        return true
+    }
+
     // ------------------------------------------------------------------ QR (камера)
 
     private fun startQr() {
         if (analyzing) return
         if (sessionActive) stopAll()
-        // сначала разрешение на камеру — системный запрос, без него сканер не откроется
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
-            return
-        }
-        launchQr()
+        fx.beep()
+        QrScan.start(this, "ОПТИЧЕСКИЙ СКАН · наведите сканер на код")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQ_CAMERA) return
-        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) ui.post { launchQr() }
-        else Toast.makeText(this, "Нет доступа к камере — разрешите его в настройках телефона", Toast.LENGTH_LONG).show()
-    }
-
-    private fun launchQr() {
-        fx.beep()
-        try {
-            IntentIntegrator(this).apply {
-                setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-                setPrompt("ОПТИЧЕСКИЙ СКАН · наведите сканер на код")
-                setBeepEnabled(false)
-                setOrientationLocked(true)
-                setBarcodeImageEnabled(false)
-            }.initiateScan()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Камера недоступна", Toast.LENGTH_SHORT).show()
-        }
+        QrScan.onPermission(this, requestCode, grantResults)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        val r = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
-        if (r == null) {
-            super.onActivityResult(requestCode, resultCode, data)
-            return
-        }
-        val text = r.contents?.trim().orEmpty()
+        val text = QrScan.result(requestCode, resultCode, data)
+        if (text == null) { super.onActivityResult(requestCode, resultCode, data); return }
         if (text.isNotEmpty()) {
             val read = TagRead("", listOf(text))
             prefs.lastCodes = read.describe()
@@ -319,9 +310,9 @@ class ScanActivity : Activity() {
                 radar.state = RadarView.State.IDLE
                 radar.progress = 0f
                 setStatus("РЕЖИМ ОЖИДАНИЯ", Pal.TEXT)
-                log.text = "Нажмите «Начать сканирование»\nи поднесите сканер к объекту."
+                log.text = Look.idleHint
                 scanBtn.visibility = View.VISIBLE
-                scanBtn.text = "▶  НАЧАТЬ СКАНИРОВАНИЕ"
+                scanBtn.text = Look.startLabel
                 styleButton(scanBtn, accent, filled = false)
                 scanBtn.isEnabled = true
                 scanBtn.alpha = 1f
@@ -381,11 +372,11 @@ class ScanActivity : Activity() {
         lastSecond = -1L
         radar.state = RadarView.State.SCANNING
         radar.progress = 0f
-        setStatus("ПОИСК СИГНАТУР…", accent)
+        setStatus(Look.searching, accent)
         timerLabel.text = if (sessionLimitMs > 0) "ОСТАЛОСЬ" else "ВРЕМЯ СЕССИИ"
         timer.setTextColor(accent)
         timer.glow(accent, 10f)
-        scanBtn.text = "■  ОТМЕНИТЬ СКАНИРОВАНИЕ"
+        scanBtn.text = Look.cancelLabel
         styleButton(scanBtn, Pal.ERROR, filled = false)
         fx.beep()
         fx.vibrate(30)
@@ -419,7 +410,8 @@ class ScanActivity : Activity() {
             }
             if (now - lastPhraseAt > 2800) {
                 lastPhraseAt = now
-                log.text = "${phrases[Random.nextInt(phrases.size)]}\nПоднесите сканер вплотную к объекту."
+                val ph = Look.phrases
+                log.text = "${ph[Random.nextInt(ph.size)]}\nПоднесите сканер вплотную к объекту."
             }
             ui.postDelayed(this, 100)
         }
@@ -508,11 +500,12 @@ class ScanActivity : Activity() {
                 val p = va.animatedValue as Float
                 radar.progress = p
                 timer.text = String.format(Locale.US, "%3d%%", (p * 100).toInt())
-                val step = (p * analysisPhrases.size).toInt().coerceAtMost(analysisPhrases.size - 1)
+                val ap = Look.analysisPhrases
+                val step = (p * ap.size).toInt().coerceAtMost(ap.size - 1)
                 if (step != lastStep) {
                     lastStep = step
                     fx.tick()
-                    log.text = "${analysisPhrases[step]}\n[${bar(p)}]"
+                    log.text = "${ap[step]}\n[${bar(p)}]"
                 }
             }
             start()
@@ -528,11 +521,34 @@ class ScanActivity : Activity() {
 
     private fun finishAnalysis(read: TagRead) {
         val m = mode ?: return
+        val p = person ?: return
         animator?.cancel()
-        val result = Repo.get(this).find(read.candidates, m.id)
+        val db = Repo.get(this)
+        // код берём из текста на метке / QR (например F3VP7T), затем заводской UID метки
+        val codes = Codes.candidates(read.texts) + listOfNotNull(read.uid.takeIf { it.isNotBlank() })
+        val result = db.find(codes, m.id)
+        var next: Intent
+        var ok = result is Lookup.Found || result is Lookup.Identified
+        if (result is Lookup.Content) {
+            Store.log(this, p, "scan", JSONObject().put("code", result.code).put("result", "found").put("contentId", result.item.id))
+            when (val g = Access.check(this, result.item, p)) {
+                Access.Gate.Ok -> {
+                    Store.opened(this, p, result.item)
+                    next = ContentActivity.intent(this, result.item.id)
+                    ok = true
+                }
+                is Access.Gate.Denied -> {
+                    Store.log(this, p, "content_open", JSONObject().put("contentId", result.item.id).put("result", "blocked"))
+                    next = ResultActivity.denied(this, m, g.title, g.message)
+                }
+            }
+        } else {
+            Store.log(this, p, "scan", JSONObject().put("code", codes.firstOrNull() ?: "").put("result", if (ok) "found" else "not_found"))
+            next = ResultActivity.intent(this, m, result)
+        }
+        Store.pushLater(this)
         radar.state = RadarView.State.LOCKED
         timer.text = "100%"
-        val ok = result is Lookup.Found || result is Lookup.Identified
         setStatus(
             when {
                 result is Lookup.Identified -> "ЛИЧНОСТЬ ИДЕНТИФИЦИРОВАНА"
@@ -546,7 +562,7 @@ class ScanActivity : Activity() {
             if (!analyzing) return@postDelayed
             analyzing = false
             lastUidAt = SystemClock.uptimeMillis() // защита от повтора — с момента возврата
-            startActivity(ResultActivity.intent(this, m, result))
+            startActivity(next)
         }, 750)
     }
 
@@ -579,9 +595,7 @@ class ScanActivity : Activity() {
     private fun syncDialog() {
         if (sessionActive || analyzing) return
         SyncUi.show(this) {
-            mode = Repo.get(this).mode(prefs.role)
-            if (mode == null) startActivity(Intent(this, RoleActivity::class.java))
-            else {
+            if (resolveOperator()) {
                 applyMode(); refreshFooter(); setIdle()
             }
         }
