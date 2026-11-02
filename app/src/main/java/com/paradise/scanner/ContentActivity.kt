@@ -154,6 +154,10 @@ class ContentActivity : Activity() {
                 Store.opened(this, p, next)
                 history.add(next.id); fx?.success(); render()
             }
+            is Access.Gate.Pay -> {
+                Store.log(this, p, "content_open", JSONObject().put("contentId", next.id).put("result", "unpaid"))
+                startActivity(PayActivity.intent(this, next.id))
+            }
         }
         Store.pushLater(this)
     }

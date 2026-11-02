@@ -206,7 +206,22 @@ object Sync {
             if (e.code != 404 && e.code != 400) throw e
         }
 
-        val db = Database(modes, entries, people, System.currentTimeMillis(), true, contents, media, prog)
+        // оплаты кристаллами и коды кристаллов (sql/crystals.sql; нет таблиц — пропускаем)
+        val paid = HashSet<String>()
+        val crystals = HashSet<String>()
+        try {
+            val arr = fetchAll(base, key, "content_payments", "character_id.asc")
+            for (i in 0 until arr.length()) {
+                val x = arr.getJSONObject(i)
+                if (str(x, "completed_at").isNotBlank()) paid.add(str(x, "character_id") + "|" + str(x, "content_id"))
+            }
+            val cr = fetchAll(base, key, "crystals", "code.asc")
+            for (i in 0 until cr.length()) str(cr.getJSONObject(i), "code").uppercase().takeIf { it.isNotBlank() }?.let { crystals.add(it) }
+        } catch (e: HttpError) {
+            if (e.code != 404 && e.code != 400) throw e
+        }
+
+        val db = Database(modes, entries, people, System.currentTimeMillis(), true, contents, media, prog, paid, crystals)
         val tmp = File(ctx.filesDir, "db.json.tmp")
         tmp.writeText(db.toJson().toString())
         if (!tmp.renameTo(Repo.dbFile(ctx))) {

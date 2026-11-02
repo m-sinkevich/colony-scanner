@@ -11,6 +11,8 @@ object Access {
     sealed class Gate {
         object Ok : Gate()
         data class Denied(val title: String, val message: String) : Gate()
+        /** Платный объект: нужно внести кристаллы (один раз на персонажа). */
+        data class Pay(val price: Int) : Gate()
     }
 
     fun check(ctx: Context, item: ContentItem, p: Person): Gate {
@@ -37,6 +39,7 @@ object Access {
             "master_event" -> return Gate.Denied("ДОСТУП ОГРАНИЧЕН", "Этот объект разблокируется событием от мастера.")
             "silence_timeout" -> return Gate.Denied("ДОСТУП ОГРАНИЧЕН", "Этот объект активируется автоматически, не по сканированию.")
         }
+        if (item.price > 0 && !Crystals.paid(ctx, p.id, item.id)) return Gate.Pay(item.price)
         return Gate.Ok
     }
 

@@ -33,7 +33,8 @@ class JournalActivity : Activity() {
 
         val db = Repo.get(this)
         val me = Prefs(this).characterId
-        val items = History.all(this)
+        // только записи текущего оператора
+        val items = History.all(this).filter { it.charId == me }
         val day = SimpleDateFormat("dd.MM", Locale.getDefault())
         val tm = SimpleDateFormat("HH:mm", Locale.getDefault())
         if (items.isEmpty()) root.addView(label("Сканирований ещё не было.", 14f, Pal.DIM).apply { gravity = Gravity.CENTER }, lp().apply { topMargin = dp(30) })
@@ -43,6 +44,9 @@ class JournalActivity : Activity() {
                 "person" -> "ЛИЧНОСТЬ" to accent
                 "tag" -> "ОБЪЕКТ" to accent
                 "denied" -> "ДОСТУП ОГРАНИЧЕН" to Pal.WARN
+                "pay" -> "ТРЕБУЕТСЯ ОПЛАТА" to Pal.WARN
+                "paid" -> "ОПЛАЧЕНО КРИСТАЛЛАМИ" to accent
+                "crystal" -> "КРИСТАЛЛ" to accent
                 "wrong" -> "АНАЛИЗ НЕВОЗМОЖЕН" to Pal.WARN
                 else -> "НЕ ОПОЗНАН" to Pal.ERROR
             }
@@ -51,12 +55,15 @@ class JournalActivity : Activity() {
                 setPadding(dp(14), dp(10), dp(14), dp(10))
                 background = Look.panel(context, Pal.withAlpha(col, 150), 0xCC060D11.toInt(), chamferDp = 10f, brackets = false)
             }
-            row.addView(label("${day.format(Date(it.at))}.${ResultActivity.GAME_YEAR} · ${tm.format(Date(it.at))} · $tag" +
-                (if (it.charId != me && it.name.isNotBlank()) " · ${it.name.uppercase()}" else ""), 10f, col).apply { letterSpacing = 0.06f }, lp())
+            row.addView(label("${day.format(Date(it.at))}.${ResultActivity.GAME_YEAR} · ${tm.format(Date(it.at))} · $tag", 10f, col).apply { letterSpacing = 0.06f }, lp())
             row.addView(label(it.title, 15f, Pal.TEXT, bold = true), lp().apply { topMargin = dp(3) })
             if (it.note.isNotBlank()) row.addView(label(it.note, 12f, Pal.DIM), lp().apply { topMargin = dp(2) })
             val item = db.content(it.contentId)
-            if (it.kind == "content" && item != null) {
+            if (it.kind == "pay" && item != null && !Crystals.paid(this, me ?: "", item.id)) {
+                row.addView(label("› внести кристаллы", 11f, accent), lp().apply { topMargin = dp(4) })
+                row.setOnClickListener { startActivity(PayActivity.intent(this, item.id)) }
+            }
+            if ((it.kind == "content" || it.kind == "paid") && item != null) {
                 row.addView(label(if (item.playback == "once") "запись одноразовая — повторный просмотр закрыт" else "› открыть снова", 11f,
                     if (item.playback == "once") Pal.DIM else accent), lp().apply { topMargin = dp(4) })
                 if (item.playback != "once") row.setOnClickListener {

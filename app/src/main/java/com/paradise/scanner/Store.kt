@@ -164,6 +164,13 @@ object Store {
         Thread { try { push(app) } catch (e: Exception) { } }.start()
     }
 
+    /** Вызов функции базы (например spend_crystal). Нужна сеть: при ошибке — исключение. */
+    fun rpc(ctx: Context, fn: String, body: JSONObject): String {
+        val prefs = Prefs(ctx)
+        if (!prefs.hasServer) throw java.io.IOException("сервер не настроен")
+        return request(prefs.supabaseUrl.trim().trimEnd('/'), prefs.supabaseKey.trim(), "POST", "rpc/$fn", body.toString(), null)
+    }
+
     private fun request(base: String, key: String, method: String, path: String, body: String?, prefer: String?): String {
         val c = URL("$base/rest/v1/$path").openConnection() as HttpURLConnection
         try {

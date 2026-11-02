@@ -101,9 +101,20 @@ class ScanActivity : Activity() {
         kicker = label("◈ КОЛОНИАЛЬНЫЙ СКАНЕР · ${ResultActivity.GAME_YEAR} · v${BuildConfig.VERSION_NAME}", 10f, Pal.DIM).apply { letterSpacing = 0.15f }
         header = label("СКАНЕР", 24f, Pal.DEFAULT_ACCENT, bold = true).apply { letterSpacing = 0.12f }
         subtitle = label("", 11f, Pal.DIM)
-        headerPanel.addView(kicker, lp())
-        headerPanel.addView(header, lp().apply { topMargin = dp(2) })
-        headerPanel.addView(subtitle, lp())
+        val headText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        headText.addView(kicker, lp())
+        headText.addView(header, lp().apply { topMargin = dp(2) })
+        headText.addView(subtitle, lp())
+        val headRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        headRow.addView(headText, lp(w = 0, weight = 1f))
+        journalBtn = termButton("☰\nЖУРНАЛ", Pal.DEFAULT_ACCENT) { if (!analyzing) { if (sessionActive) stopAll(); startActivity(android.content.Intent(this, JournalActivity::class.java)) } }.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10f)
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            minHeight = dp(52); minWidth = dp(64)
+        }
+        headRow.addView(journalBtn, lp(w = LinearLayout.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(10) })
+        headerPanel.addView(headRow, lp())
         root.addView(headerPanel, lp())
 
         // служебное меню: удерживать заголовок 3 секунды; 5 быстрых касаний — сменить оператора
@@ -155,18 +166,11 @@ class ScanActivity : Activity() {
 
         // --- оптический сканер: QR-коды бейджей и объектов (камера) ---
         qrBtn = termButton("◎  ОПТИЧЕСКИЙ СКАН", Pal.DEFAULT_ACCENT) { startQr() }.apply {
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-            val p = dp(10); setPadding(p, p, p, p)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 17f)
+            minHeight = dp(60)
             visibility = if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) View.VISIBLE else View.GONE
         }
-        journalBtn = termButton("☰  ЖУРНАЛ", Pal.DEFAULT_ACCENT) { if (!analyzing) { if (sessionActive) stopAll(); startActivity(android.content.Intent(this, JournalActivity::class.java)) } }.apply {
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-            val p = dp(10); setPadding(p, p, p, p)
-        }
-        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        if (qrBtn.visibility == View.VISIBLE) row2.addView(qrBtn, lp(w = 0, weight = 1.3f).apply { rightMargin = dp(8) })
-        row2.addView(journalBtn, lp(w = 0, weight = 1f))
-        root.addView(row2, lp().apply { topMargin = dp(8) })
+        if (qrBtn.visibility == View.VISIBLE) root.addView(qrBtn, lp().apply { topMargin = dp(10) })
 
         // --- радар ---
         radar = RadarView(this)
@@ -563,6 +567,12 @@ class ScanActivity : Activity() {
                     next = ContentActivity.intent(this, result.item.id)
                     ok = true
                 }
+                is Access.Gate.Pay -> {
+                    Store.log(this, p, "content_open", JSONObject().put("contentId", result.item.id).put("result", "unpaid"))
+                    History.add(this, p, "pay", History.titleOf(result.item, p), result.item.id, "Требуется оплата: ${g.price} крист.")
+                    next = PayActivity.intent(this, result.item.id)
+                    ok = true
+                }
                 is Access.Gate.Denied -> {
                     Store.log(this, p, "content_open", JSONObject().put("contentId", result.item.id).put("result", "blocked"))
                     History.add(this, p, "denied", History.titleOf(result.item, p), result.item.id, g.title.lowercase().replaceFirstChar { it.uppercase() })
@@ -570,9 +580,13 @@ class ScanActivity : Activity() {
                 }
             }
         } else {
-            Store.log(this, p, "scan", JSONObject().put("code", codes.firstOrNull() ?: "").put("result", if (ok) "found" else "not_found"))
-            next = ResultActivity.intent(this, m, result)
-            when (result) {
+            val crystal = if (ok) null else codes.firstOrNull { Crystals.isCrystal(this, it) }
+            Store.log(this, p, "scan", JSONObject().put("code", crystal ?: codes.firstOrNull() ?: "").put("result", if (ok) "found" else if (crystal != null) "crystal" else "not_found"))
+            next = if (crystal != null) ResultActivity.denied(this, m, "КРИСТАЛЛ",
+                "Это кристалл — им оплачивают доступ к закрытым данным. Отсканируйте его, когда сканер запросит оплату.")
+                else ResultActivity.intent(this, m, result)
+            if (crystal != null) History.add(this, p, "crystal", "Кристалл $crystal")
+            else when (result) {
                 is Lookup.Found -> History.add(this, p, "tag", result.entry.title.ifBlank { result.person?.name ?: "Объект" })
                 is Lookup.Identified -> History.add(this, p, "person", result.person.name)
                 is Lookup.WrongScanner -> History.add(this, p, "wrong", "Объект без данных для этого сканера")

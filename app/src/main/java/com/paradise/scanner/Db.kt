@@ -49,6 +49,7 @@ class ContentItem(val raw: JSONObject) {
     val type: String = raw.optString("type", "text").ifBlank { "text" }
     val body: String = if (raw.isNull("body")) "" else raw.optString("body")
     val playback: String = raw.optString("playback", "unlimited")
+    val price: Int = raw.optInt("price", 0)            // цена в кристаллах (0 — бесплатно)
     val moduleScope: List<String> = strs(raw.optJSONArray("module_scope"))
     val charScope: List<String> = strs(raw.optJSONArray("character_scope"))
     val unlockType: String = raw.optJSONObject("unlock_condition")?.optString("type")?.ifBlank { null } ?: "always"
@@ -131,6 +132,8 @@ class Database(
     val contents: List<ContentItem> = emptyList(),
     val media: Map<String, String> = emptyMap(),          // ссылка → локальный файл
     val progress: Map<String, Prog> = emptyMap(),          // "персонаж|объект" → прогресс на момент загрузки
+    val paid: Set<String> = emptySet(),                    // "персонаж|объект" — оплачено кристаллами
+    val crystals: Set<String> = emptySet(),                // коды кристаллов (чтобы узнать кристалл вне оплаты)
 ) {
     private val index = HashMap<String, Entry>()
     private val knownCodes = HashSet<String>()
@@ -206,6 +209,7 @@ class Database(
         val pr = JSONObject(); progress.forEach { (k, v) -> pr.put(k, JSONObject().put("n", v.count).put("f", v.firstAt)) }
         return JSONObject().put("updated_at", updatedAt).put("from_server", fromServer).put("modes", m).put("tags", t).put("people", pp)
             .put("contents", ca).put("media", md).put("progress", pr)
+            .put("paid", JSONArray(paid.toList())).put("crystals", JSONArray(crystals.toList()))
     }
 
     companion object {
@@ -261,7 +265,9 @@ class Database(
             o.optJSONObject("media")?.let { md -> md.keys().forEach { k -> media[k] = md.optString(k) } }
             val progress = HashMap<String, Prog>()
             o.optJSONObject("progress")?.let { pr -> pr.keys().forEach { k -> pr.optJSONObject(k)?.let { progress[k] = Prog(it.optInt("n"), it.optLong("f")) } } }
-            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress)
+            val paid = o.optJSONArray("paid")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
+            val crystals = o.optJSONArray("crystals")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
+            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress, paid, crystals)
         }
     }
 }
