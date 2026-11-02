@@ -569,7 +569,7 @@ class ScanActivity : Activity() {
                 }
                 is Access.Gate.Pay -> {
                     Store.log(this, p, "content_open", JSONObject().put("contentId", result.item.id).put("result", "unpaid"))
-                    History.add(this, p, "pay", History.titleOf(result.item, p), result.item.id, "Требуется оплата: ${g.price} крист.")
+                    History.add(this, p, "pay", History.titleOf(result.item, p), result.item.id, "Нужна энергия кристаллов: ${g.price}")
                     next = PayActivity.intent(this, result.item.id)
                     ok = true
                 }
@@ -583,7 +583,7 @@ class ScanActivity : Activity() {
             val crystal = if (ok) null else codes.firstOrNull { Crystals.isCrystal(this, it) }
             Store.log(this, p, "scan", JSONObject().put("code", crystal ?: codes.firstOrNull() ?: "").put("result", if (ok) "found" else if (crystal != null) "crystal" else "not_found"))
             next = if (crystal != null) ResultActivity.denied(this, m, "КРИСТАЛЛ",
-                "Это кристалл — им оплачивают доступ к закрытым данным. Отсканируйте его, когда сканер запросит оплату.")
+                "Это кристалл — источник энергии. Отсканируйте его, когда сканеру потребуется дополнительная энергия для доступа к данным.")
                 else ResultActivity.intent(this, m, result)
             if (crystal != null) History.add(this, p, "crystal", "Кристалл $crystal")
             else when (result) {

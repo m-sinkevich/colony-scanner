@@ -229,7 +229,8 @@ object Sync {
             tmp.delete()
         }
         Repo.reload(ctx)
-        Store.purgeSent(ctx, progAt)   // отправленное теперь учтено в скачанном прогрессе
+        Store.purgeSent(ctx, progAt)
+        Crystals.clearLocal(ctx)   // отправленное теперь учтено в скачанном прогрессе
 
         // удаляем картинки, на которые больше никто не ссылается
         dir.listFiles()?.forEach { if (it.name !in usedFiles) it.delete() }

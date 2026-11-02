@@ -17,6 +17,9 @@ object Crystals {
         sp(ctx).edit().putBoolean("$charId|$contentId", true).apply()
     }
 
+    /** После загрузки базы с сервера локальные отметки не нужны: мастер мог сбросить энергию объекта. */
+    fun clearLocal(ctx: Context) { sp(ctx).edit().clear().apply() }
+
     fun isCrystal(ctx: Context, code: String): Boolean = code.trim().uppercase() in Repo.get(ctx).crystals
 
     data class Result(val result: String, val paid: Int, val price: Int, val completed: Boolean)

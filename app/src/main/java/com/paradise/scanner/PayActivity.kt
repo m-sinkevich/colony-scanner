@@ -51,11 +51,11 @@ class PayActivity : Activity() {
             background = Look.panel(context, Pal.WARN, Pal.withAlpha(Pal.WARN, 20), chamferDp = 16f)
         }
         head.addView(label(Look.kicker, 10f, Pal.DIM).apply { letterSpacing = 0.15f }, lp())
-        head.addView(label("ТРЕБУЕТСЯ ОПЛАТА", 22f, Pal.WARN, bold = true).apply { letterSpacing = Look.letter }.glow(Pal.WARN, 10f), lp().apply { topMargin = dp(4) })
+        head.addView(label("ТРЕБУЕТСЯ ДОПОЛНИТЕЛЬНАЯ ЭНЕРГИЯ", 20f, Pal.WARN, bold = true).apply { letterSpacing = Look.letter }.glow(Pal.WARN, 10f), lp().apply { topMargin = dp(4) })
         head.addView(label(History.titleOf(it, p), 13f, Pal.TEXT), lp().apply { topMargin = dp(4) })
         root.addView(head, lp())
 
-        root.addView(label("Доступ к этим данным открывается за кристаллы. Оплата вносится один раз — затем данные доступны вам без ограничений.", 14f, Pal.TEXT),
+        root.addView(label("Для расшифровки этих данных нужна энергия кристаллов. Энергия вносится один раз — затем данные доступны вам без ограничений.", 14f, Pal.TEXT),
             lp().apply { topMargin = dp(18) })
         gems = label("", 34f, accent, bold = true).apply { gravity = Gravity.CENTER; letterSpacing = 0.3f }
         root.addView(gems, lp().apply { topMargin = dp(22) })
@@ -75,14 +75,14 @@ class PayActivity : Activity() {
     private fun show() {
         val price = item?.price ?: 0
         gems.text = (0 until price).joinToString(" ") { if (it < paid) "◆" else "◇" }
-        count.text = "ВНЕСЕНО $paid ИЗ $price"
+        count.text = "ЭНЕРГИЯ $paid ИЗ $price"
     }
 
     private fun say(text: String, color: Int) { msg.text = text; msg.setTextColor(color) }
 
     private fun scan() {
         if (busy) return
-        QrScan.start(this, "ОПЛАТА · наведите на QR-код кристалла")
+        QrScan.start(this, "ЭНЕРГИЯ · наведите на код кристалла")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -99,7 +99,7 @@ class PayActivity : Activity() {
     private fun spend(raw: String) {
         val it = item ?: return; val p = person ?: return
         val code = Codes.candidates(listOf(raw)).firstOrNull()?.uppercase() ?: raw.trim().uppercase()
-        if (code in seen) { say("Кристалл $code уже внесён. Отсканируйте другой.", Pal.WARN); fx?.fail(); return }
+        if (code in seen) { say("Энергия кристалла $code уже внесена. Отсканируйте другой.", Pal.WARN); fx?.fail(); return }
         busy = true
         say("◌ ПРОВЕРКА КРИСТАЛЛА $code…", Pal.DIM)
         Thread {
@@ -108,22 +108,22 @@ class PayActivity : Activity() {
                 busy = false
                 if (isFinishing) return@post
                 when {
-                    r == null -> { say("НЕТ СВЯЗИ С ХРАНИЛИЩЕМ\nОплата возможна только при подключении к сети.", Pal.ERROR); fx?.fail() }
+                    r == null -> { say("НЕТ СВЯЗИ С ЭНЕРГОСЕТЬЮ КОЛОНИИ\nЭнергию можно внести только при подключении к сети.", Pal.ERROR); fx?.fail() }
                     r.result == "ok" || r.result == "already_paid" -> {
                         seen.add(code); paid = r.paid; show()
                         if (r.completed || r.result == "already_paid") {
                             fx?.success(); fx?.vibrate(60, 60, 160)
-                            say("✓ ОПЛАТА ЗАВЕРШЕНА", Look.accent)
+                            say("✓ ЭНЕРГИИ ДОСТАТОЧНО", Look.accent)
                             Store.opened(this, p, it)
                             History.add(this, p, "paid", History.titleOf(it, p), it.id)
                             Store.pushLater(this)
                             ui.postDelayed({ startActivity(ContentActivity.intent(this, it.id)); finish() }, 900)
                         } else {
                             fx?.success()
-                            say("◆ Кристалл $code принят. Отсканируйте следующий.", Look.accent)
+                            say("◆ Энергия кристалла $code принята. Отсканируйте следующий.", Look.accent)
                         }
                     }
-                    r.result == "spent" -> { say("Кристалл $code уже израсходован и не принимается.", Pal.ERROR); fx?.fail(); fx?.vibrate(120, 80, 120) }
+                    r.result == "spent" -> { say("Кристалл $code истощён — энергии в нём нет.", Pal.ERROR); fx?.fail(); fx?.vibrate(120, 80, 120) }
                     else -> { say("Код $code — не кристалл.", Pal.ERROR); fx?.fail() }
                 }
             }

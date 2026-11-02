@@ -44,8 +44,8 @@ class JournalActivity : Activity() {
                 "person" -> "ЛИЧНОСТЬ" to accent
                 "tag" -> "ОБЪЕКТ" to accent
                 "denied" -> "ДОСТУП ОГРАНИЧЕН" to Pal.WARN
-                "pay" -> "ТРЕБУЕТСЯ ОПЛАТА" to Pal.WARN
-                "paid" -> "ОПЛАЧЕНО КРИСТАЛЛАМИ" to accent
+                "pay" -> "НУЖНА ЭНЕРГИЯ" to Pal.WARN
+                "paid" -> "ЭНЕРГИЯ ВНЕСЕНА" to accent
                 "crystal" -> "КРИСТАЛЛ" to accent
                 "wrong" -> "АНАЛИЗ НЕВОЗМОЖЕН" to Pal.WARN
                 else -> "НЕ ОПОЗНАН" to Pal.ERROR
@@ -60,7 +60,7 @@ class JournalActivity : Activity() {
             if (it.note.isNotBlank()) row.addView(label(it.note, 12f, Pal.DIM), lp().apply { topMargin = dp(2) })
             val item = db.content(it.contentId)
             if (it.kind == "pay" && item != null && !Crystals.paid(this, me ?: "", item.id)) {
-                row.addView(label("› внести кристаллы", 11f, accent), lp().apply { topMargin = dp(4) })
+                row.addView(label("› внести энергию кристаллов", 11f, accent), lp().apply { topMargin = dp(4) })
                 row.setOnClickListener { startActivity(PayActivity.intent(this, item.id)) }
             }
             if ((it.kind == "content" || it.kind == "paid") && item != null) {
