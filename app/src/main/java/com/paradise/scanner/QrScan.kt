@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.widget.Toast
-import com.google.zxing.integration.android.IntentIntegrator
 
 /** Оптический скан (камера) — QR-коды бейджей и объектов. */
 object QrScan {
@@ -27,13 +26,7 @@ object QrScan {
 
     private fun launch(a: Activity, prompt: String) {
         try {
-            IntentIntegrator(a).apply {
-                setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-                setPrompt(prompt)
-                setBeepEnabled(false)
-                setOrientationLocked(true)
-                setBarcodeImageEnabled(false)
-            }.initiateScan()
+            a.startActivityForResult(QrActivity.intent(a, prompt), QrActivity.REQ)
         } catch (e: Exception) {
             Toast.makeText(a, "Камера недоступна", Toast.LENGTH_SHORT).show()
         }
@@ -47,9 +40,10 @@ object QrScan {
         return true
     }
 
-    /** Текст QR-кода; null — не наш результат или отмена. Пустая строка — ничего не считано. */
+    /** Текст QR-кода; null — не наш результат. Пустая строка — отмена. */
     fun result(requestCode: Int, resultCode: Int, data: Intent?): String? {
-        val r = IntentIntegrator.parseActivityResult(requestCode, resultCode, data) ?: return null
-        return r.contents?.trim() ?: ""
+        if (requestCode != QrActivity.REQ) return null
+        if (resultCode != Activity.RESULT_OK) return ""
+        return data?.getStringExtra(QrActivity.EXTRA_TEXT)?.trim() ?: ""
     }
 }

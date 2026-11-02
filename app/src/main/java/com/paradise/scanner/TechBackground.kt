@@ -1,16 +1,15 @@
 package com.paradise.scanner
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PathMeasure
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.os.Build
-import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -18,194 +17,134 @@ import android.widget.FrameLayout
 import kotlin.random.Random
 
 /**
- * Технический фон: чертёжная сетка с узлами, линейки по краям, "печатная плата"
- * с бегущими по дорожкам импульсами, мерцающие блоки шестнадцатеричных данных и линия развёртки.
+ * Фон прибора: неподвижная фактура, своя у каждого типа сканера
+ * (медицинский — сетка крестиков, технический — чертёжная сетка со штриховкой и заклёпками,
+ * научный — соты), подсветка цветом сканера и затемнение по краям. Без анимации.
  */
 class TechBackgroundView(ctx: Context) : View(ctx) {
 
     var accent: Int = Pal.DEFAULT_ACCENT
         set(v) {
-            field = v; shaders = null; invalidate()
+            if (field != v) { field = v; cache = null; invalidate() }
         }
 
-    private class Trace(val path: Path, val measure: PathMeasure, val length: Float, var t: Float, val speed: Float)
-    private class HexCell(val x: Float, val y: Float, var text: String, var nextChange: Long, val alpha: Int)
-
-    private val traces = ArrayList<Trace>()
-    private val hexCells = ArrayList<HexCell>()
-    private val minor = Paint().apply { strokeWidth = 1f }
-    private val major = Paint().apply { strokeWidth = 1f }
-    private val node = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val trace = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
-    private val pulse = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = MONO }
-    private val fill = Paint()
-    private var shaders: Array<Shader>? = null
-    private val seg = Path()
-    private var last = 0L
-
-    private val step = ctx.dpf(20f)      // мелкая сетка
-    private val majorEvery = 4           // крупная — каждые 4 клетки
+    private var cache: Bitmap? = null
+    private var cacheKind: Kind? = null
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        shaders = null
-        buildTraces(w.toFloat(), h.toFloat())
-        buildHex(w.toFloat(), h.toFloat())
+        cache = null
     }
-
-    private fun buildTraces(w: Float, h: Float) {
-        traces.clear()
-        if (w <= 0f || h <= 0f) return
-        val cell = step * 2
-        val cols = (w / cell).toInt()
-        val rows = (h / cell).toInt()
-        if (cols < 2 || rows < 2) return
-        repeat(14) {
-            var cx = Random.nextInt(cols + 1)
-            var cy = Random.nextInt(rows + 1)
-            val p = Path()
-            p.moveTo(cx * cell, cy * cell)
-            var horizontal = Random.nextBoolean()
-            repeat(3 + Random.nextInt(5)) {
-                val len = 1 + Random.nextInt(4)
-                val dir = if (Random.nextBoolean()) 1 else -1
-                if (horizontal) cx = (cx + dir * len).coerceIn(0, cols) else cy = (cy + dir * len).coerceIn(0, rows)
-                p.lineTo(cx * cell, cy * cell)
-                horizontal = !horizontal
-            }
-            val m = PathMeasure(p, false)
-            if (m.length > cell) traces.add(Trace(p, m, m.length, Random.nextFloat(), 0.08f + Random.nextFloat() * 0.18f))
-        }
-    }
-
-    private fun buildHex(w: Float, h: Float) {
-        hexCells.clear()
-        if (w <= 0f || h <= 0f) return
-        repeat(9) {
-            hexCells.add(HexCell(
-                Random.nextFloat() * (w - context.dpf(90f)) + context.dpf(26f),
-                Random.nextFloat() * (h - context.dpf(60f)) + context.dpf(40f),
-                hex(), 0L, 30 + Random.nextInt(40)))
-        }
-    }
-
-    private fun hex(): String = buildString {
-        repeat(2) { line ->
-            if (line > 0) append('\n')
-            repeat(4) { append(String.format("%02X", Random.nextInt(256))).append(' ') }
-        }
-    }
-
-    private fun shaderSet(w: Float, h: Float): Array<Shader> = arrayOf(
-        LinearGradient(0f, 0f, 0f, h,
-            intArrayOf(Color.rgb(4, 10, 14), Color.rgb(6, 16, 20), Color.rgb(3, 7, 10)), null, Shader.TileMode.CLAMP),
-        RadialGradient(w * 0.5f, h * 0.42f, w * 0.85f,
-            intArrayOf(Pal.withAlpha(accent, 34), Color.TRANSPARENT), null, Shader.TileMode.CLAMP),
-        RadialGradient(w * 0.5f, h * 0.5f, h * 0.72f,
-            intArrayOf(Color.TRANSPARENT, Color.argb(170, 0, 0, 0)), floatArrayOf(0.5f, 1f), Shader.TileMode.CLAMP),
-    )
 
     override fun onDraw(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        val now = SystemClock.uptimeMillis()
-        val dt = if (last == 0L) 0f else ((now - last).coerceAtMost(100)) / 1000f
-        last = now
-        val t = now / 1000f
-        val sh = shaders ?: shaderSet(w, h).also { shaders = it }
-
-        fill.shader = sh[0]; canvas.drawRect(0f, 0f, w, h, fill)
-        fill.shader = sh[1]; canvas.drawRect(0f, 0f, w, h, fill)
-
-        // сетка
-        minor.color = Pal.withAlpha(accent, 14)
-        major.color = Pal.withAlpha(accent, 34)
-        var i = 0
-        var x = 0f
-        while (x <= w) {
-            canvas.drawLine(x, 0f, x, h, if (i % majorEvery == 0) major else minor)
-            x += step; i++
+        val w = width; val h = height
+        if (w <= 0 || h <= 0) return
+        if (cache == null || cacheKind != Look.kind) {
+            cache?.recycle()
+            cacheKind = Look.kind
+            cache = try { Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { render(Canvas(it), w.toFloat(), h.toFloat(), Look.kind) } } catch (e: Throwable) { null }
         }
-        i = 0
-        var y = 0f
-        while (y <= h) {
-            canvas.drawLine(0f, y, w, y, if (i % majorEvery == 0) major else minor)
-            y += step; i++
+        val b = cache
+        if (b != null) canvas.drawBitmap(b, 0f, 0f, null) else render(canvas, w.toFloat(), h.toFloat(), Look.kind)
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        cache?.recycle(); cache = null
+    }
+
+    private fun render(c: Canvas, w: Float, h: Float, kind: Kind) {
+        val base = when (kind) {
+            Kind.MED -> intArrayOf(Color.rgb(10, 16, 20), Color.rgb(13, 20, 25), Color.rgb(6, 10, 13))
+            Kind.TECH -> intArrayOf(Color.rgb(4, 10, 16), Color.rgb(6, 14, 22), Color.rgb(3, 7, 11))
+            Kind.SCI -> intArrayOf(Color.rgb(4, 12, 8), Color.rgb(6, 17, 12), Color.rgb(3, 8, 6))
         }
-        // крестики в узлах крупной сетки
-        node.color = Pal.withAlpha(accent, 70)
-        node.strokeWidth = context.dpf(1f)
-        val big = step * majorEvery
-        val cr = context.dpf(3f)
-        x = big
-        while (x < w) {
-            y = big
-            while (y < h) {
-                canvas.drawLine(x - cr, y, x + cr, y, node)
-                canvas.drawLine(x, y - cr, x, y + cr, node)
-                y += big
+        p.shader = LinearGradient(0f, 0f, 0f, h, base, null, Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, w, h, p)
+        p.shader = RadialGradient(w * 0.5f, h * 0.4f, w * 0.9f, intArrayOf(Pal.withAlpha(accent, if (kind == Kind.MED) 22 else 30), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, w, h, p)
+        p.shader = null
+        val d = context.dpf(1f)
+        when (kind) {
+            Kind.MED -> {
+                // аккуратная сетка крестиков и тонкие горизонтальные полосы, как на медицинской плёнке
+                p.style = Paint.Style.FILL
+                p.color = Pal.withAlpha(accent, 6)
+                var y = 0f
+                while (y < h) { c.drawRect(0f, y, w, y + d * 14, p); y += d * 28 }
+                p.style = Paint.Style.STROKE; p.strokeWidth = d * 1.1f
+                val s = d * 26; val k = d * 3.2f
+                var row = 0
+                y = s / 2
+                while (y < h) {
+                    var x = if (row % 2 == 0) s / 2 else s
+                    while (x < w) {
+                        p.color = Pal.withAlpha(accent, if ((row + (x / s).toInt()) % 5 == 0) 40 else 18)
+                        c.drawLine(x - k, y, x + k, y, p); c.drawLine(x, y - k, x, y + k, p)
+                        x += s
+                    }
+                    y += s; row++
+                }
             }
-            x += big
-        }
-
-        // дорожки платы и импульсы
-        trace.color = Pal.withAlpha(accent, 40)
-        trace.strokeWidth = context.dpf(1.4f)
-        pulse.color = Pal.withAlpha(accent, 200)
-        pulse.strokeWidth = context.dpf(2.2f)
-        node.style = Paint.Style.FILL
-        for (tr in traces) {
-            canvas.drawPath(tr.path, trace)
-            tr.t = (tr.t + dt * tr.speed) % 1.25f
-            if (tr.t <= 1f) {
-                val end = tr.t * tr.length
-                val start = (end - context.dpf(26f)).coerceAtLeast(0f)
-                seg.reset()
-                if (tr.measure.getSegment(start, end, seg, true)) canvas.drawPath(seg, pulse)
+            Kind.TECH -> {
+                // мелкая диагональная штриховка + чертёжная сетка + заклёпки в узлах
+                p.style = Paint.Style.STROKE
+                p.strokeWidth = d * 0.8f
+                p.color = Pal.withAlpha(accent, 9)
+                val hs = d * 7
+                var x = -h
+                while (x < w) { c.drawLine(x, h, x + h, 0f, p); x += hs }
+                val g = d * 48
+                p.strokeWidth = d
+                p.color = Pal.withAlpha(accent, 22)
+                x = 0f
+                while (x <= w) { c.drawLine(x, 0f, x, h, p); x += g }
+                var y = 0f
+                while (y <= h) { c.drawLine(0f, y, w, y, p); y += g }
+                p.style = Paint.Style.FILL
+                x = g
+                while (x < w) {
+                    y = g
+                    while (y < h) {
+                        p.color = Pal.withAlpha(accent, 45); c.drawCircle(x, y, d * 2.2f, p)
+                        p.color = Color.argb(120, 0, 0, 0); c.drawCircle(x + d * 0.7f, y + d * 0.7f, d * 1.1f, p)
+                        y += g
+                    }
+                    x += g
+                }
+            }
+            Kind.SCI -> {
+                // соты: часть ячеек чуть залита
+                val r = d * 16
+                val hw = r * kotlin.math.sqrt(3f)
+                val path = Path()
+                val rnd = Random(7)
+                var row = 0
+                var cy = 0f
+                while (cy < h + r) {
+                    var cx = if (row % 2 == 0) 0f else hw / 2
+                    while (cx < w + hw) {
+                        path.reset()
+                        for (i in 0..6) {
+                            val a = Math.toRadians(60.0 * i - 30)
+                            val px = cx + (r * kotlin.math.cos(a)).toFloat(); val py = cy + (r * kotlin.math.sin(a)).toFloat()
+                            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                        }
+                        val f = rnd.nextFloat()
+                        if (f < 0.22f) { p.style = Paint.Style.FILL; p.color = Pal.withAlpha(accent, (6 + f * 60).toInt()); c.drawPath(path, p) }
+                        p.style = Paint.Style.STROKE; p.strokeWidth = d * 0.9f; p.color = Pal.withAlpha(accent, 20)
+                        c.drawPath(path, p)
+                        cx += hw
+                    }
+                    cy += r * 1.5f; row++
+                }
             }
         }
-        node.style = Paint.Style.STROKE
-
-        // линейки по краям
-        text.textSize = context.dpf(7f)
-        text.color = Pal.withAlpha(accent, 90)
-        node.color = Pal.withAlpha(accent, 90)
-        y = 0f
-        i = 0
-        while (y <= h) {
-            val len = if (i % 10 == 0) context.dpf(10f) else if (i % 5 == 0) context.dpf(6f) else context.dpf(3f)
-            canvas.drawLine(0f, y, len, y, node)
-            canvas.drawLine(w - len, y, w, y, node)
-            if (i % 10 == 0 && i > 0) canvas.drawText(String.format("%03d", i), context.dpf(12f), y + context.dpf(2.5f), text)
-            y += context.dpf(8f); i++
-        }
-
-        // блоки данных
-        text.textSize = context.dpf(8f)
-        for (c in hexCells) {
-            if (now > c.nextChange) {
-                c.text = hex(); c.nextChange = now + 600 + Random.nextLong(2400)
-            }
-            text.color = Pal.withAlpha(accent, c.alpha)
-            var ly = c.y
-            for (line in c.text.split('\n')) {
-                canvas.drawText(line, c.x, ly, text); ly += context.dpf(10f)
-            }
-        }
-
-        // линия развёртки
-        val sy = ((t * 0.15f) % 1f) * h
-        fill.shader = null
-        fill.color = Pal.withAlpha(accent, 22)
-        canvas.drawRect(0f, sy, w, sy + context.dpf(2f), fill)
-        fill.color = Pal.withAlpha(accent, 8)
-        canvas.drawRect(0f, sy - context.dpf(24f), w, sy, fill)
-
-        fill.shader = sh[2]; canvas.drawRect(0f, 0f, w, h, fill)
-        fill.shader = null
-        postInvalidateOnAnimation()
+        p.style = Paint.Style.FILL
+        p.shader = RadialGradient(w * 0.5f, h * 0.5f, h * 0.75f, intArrayOf(Color.TRANSPARENT, Color.argb(170, 0, 0, 0)), floatArrayOf(0.5f, 1f), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, w, h, p)
+        p.shader = null
     }
 }
 
