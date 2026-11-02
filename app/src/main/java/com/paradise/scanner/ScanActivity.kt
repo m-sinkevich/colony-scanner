@@ -55,6 +55,7 @@ class ScanActivity : Activity() {
     private lateinit var timer: TextView
     private lateinit var scanBtn: TextView
     private lateinit var qrBtn: TextView
+    private lateinit var journalBtn: TextView
     private var pendingQr: TagRead? = null
     private lateinit var radar: RadarView
     private lateinit var logPanel: LinearLayout
@@ -105,13 +106,24 @@ class ScanActivity : Activity() {
         headerPanel.addView(subtitle, lp())
         root.addView(headerPanel, lp())
 
-        // служебное меню: удерживать заголовок 3 секунды
+        // служебное меню: удерживать заголовок 3 секунды; 5 быстрых касаний — сменить оператора
         var downAt = 0L
+        val taps = ArrayList<Long>()
         val holdCheck = Runnable { if (downAt != 0L) { downAt = 0L; askPin() } }
         headerPanel.setOnTouchListener { _, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> { downAt = SystemClock.uptimeMillis(); ui.postDelayed(holdCheck, 3000) }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { downAt = 0L; ui.removeCallbacks(holdCheck) }
+                MotionEvent.ACTION_UP -> {
+                    val now = SystemClock.uptimeMillis()
+                    val short = downAt != 0L && now - downAt < 500
+                    downAt = 0L; ui.removeCallbacks(holdCheck)
+                    if (short && !analyzing) {
+                        taps.add(now); taps.removeAll { now - it > 2500 }
+                        if (taps.size >= 5) { taps.clear(); relogin() }
+                        else if (taps.size >= 3) fx.tick()
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> { downAt = 0L; ui.removeCallbacks(holdCheck) }
             }
             true
         }
@@ -147,7 +159,14 @@ class ScanActivity : Activity() {
             val p = dp(10); setPadding(p, p, p, p)
             visibility = if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) View.VISIBLE else View.GONE
         }
-        root.addView(qrBtn, lp().apply { topMargin = dp(8) })
+        journalBtn = termButton("☰  ЖУРНАЛ", Pal.DEFAULT_ACCENT) { if (!analyzing) { if (sessionActive) stopAll(); startActivity(android.content.Intent(this, JournalActivity::class.java)) } }.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            val p = dp(10); setPadding(p, p, p, p)
+        }
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        if (qrBtn.visibility == View.VISIBLE) row2.addView(qrBtn, lp(w = 0, weight = 1.3f).apply { rightMargin = dp(8) })
+        row2.addView(journalBtn, lp(w = 0, weight = 1f))
+        root.addView(row2, lp().apply { topMargin = dp(8) })
 
         // --- радар ---
         radar = RadarView(this)
@@ -170,7 +189,6 @@ class ScanActivity : Activity() {
             setPadding(0, dp(10), 0, 0)
             setOnClickListener { syncDialog() }
         }
-        root.addView(footer, lp())
 
         val (screen, sf) = spaceScreen(root, Pal.DEFAULT_ACCENT)
         stars = sf
@@ -180,7 +198,7 @@ class ScanActivity : Activity() {
 
     private fun applyMode() {
         val c = Look.accent
-        kicker.text = "${Look.kicker} · ${ResultActivity.GAME_YEAR} · v${BuildConfig.VERSION_NAME}"
+        kicker.text = "${Look.kicker} · ${ResultActivity.GAME_YEAR}"
         header.text = Look.title
         header.setTextColor(c)
         header.glow(c, 12f)
@@ -196,16 +214,11 @@ class ScanActivity : Activity() {
         if (!sessionActive && !analyzing) styleButton(scanBtn, c, filled = false)
         qrBtn.text = Look.opticLabel
         styleButton(qrBtn, c, filled = false)
+        styleButton(journalBtn, c, filled = false)
     }
 
-    private fun refreshFooter() {
-        val db = Repo.get(this)
-        val whenStr = if (db.updatedAt > 0)
-            SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(db.updatedAt)) else "—"
-        val src = if (db.fromServer) "БАЗА $whenStr" else "ДЕМО-БАЗА"
-        val pend = Store.pending(this)
-        footer.text = "◇ ОБЪЕКТОВ ${db.contents.size} · $src" + (if (pend > 0) " · НЕ ОТПРАВЛЕНО $pend" else "") + " · ОБНОВИТЬ ⟳"
-    }
+    private fun refreshFooter() { /* сведения о базе игроку не показываются */ }
+
 
     /** Фальшивая телеметрия для атмосферы. */
     private val telemetryTick = object : Runnable {
@@ -219,6 +232,9 @@ class ScanActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // без надписей о базе: обновление идёт в фоне при запуске и раз в 3 минуты
+        AutoSync.onUpdated = { if (!sessionActive && !analyzing && resolveOperator()) applyMode() }
+        AutoSync.resumed(this)
         if (!resolveOperator()) return
         applyMode()
         refreshFooter()
@@ -226,6 +242,14 @@ class ScanActivity : Activity() {
         NfcRead.enable(this, adapter) { onTag(it) }
         // код, прочитанный камерой, анализируем как метку
         pendingQr?.let { r -> pendingQr = null; ui.post { if (!analyzing) analyze(r) } }
+    }
+
+    /** Смена оператора: выход и экран идентификации. */
+    private fun relogin() {
+        person?.let { Store.log(this, it, "session_end", JSONObject().put("reason", "relogin")); Store.pushLater(this) }
+        prefs.characterId = null
+        fx.beep(); fx.vibrate(40, 40, 40)
+        startActivity(Intent(this, LoginActivity::class.java))
     }
 
     /** Вошедший персонаж и его тип сканера; без допуска — экран идентификации. */
@@ -270,6 +294,7 @@ class ScanActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        AutoSync.paused()
         NfcRead.disable(this, adapter)
         stopAll()
     }
@@ -534,17 +559,25 @@ class ScanActivity : Activity() {
             when (val g = Access.check(this, result.item, p)) {
                 Access.Gate.Ok -> {
                     Store.opened(this, p, result.item)
+                    History.add(this, p, "content", History.titleOf(result.item, p), result.item.id)
                     next = ContentActivity.intent(this, result.item.id)
                     ok = true
                 }
                 is Access.Gate.Denied -> {
                     Store.log(this, p, "content_open", JSONObject().put("contentId", result.item.id).put("result", "blocked"))
+                    History.add(this, p, "denied", History.titleOf(result.item, p), result.item.id, g.title.lowercase().replaceFirstChar { it.uppercase() })
                     next = ResultActivity.denied(this, m, g.title, g.message)
                 }
             }
         } else {
             Store.log(this, p, "scan", JSONObject().put("code", codes.firstOrNull() ?: "").put("result", if (ok) "found" else "not_found"))
             next = ResultActivity.intent(this, m, result)
+            when (result) {
+                is Lookup.Found -> History.add(this, p, "tag", result.entry.title.ifBlank { result.person?.name ?: "Объект" })
+                is Lookup.Identified -> History.add(this, p, "person", result.person.name)
+                is Lookup.WrongScanner -> History.add(this, p, "wrong", "Объект без данных для этого сканера")
+                else -> History.add(this, p, "unknown", "Объект не опознан")
+            }
         }
         Store.pushLater(this)
         radar.state = RadarView.State.LOCKED

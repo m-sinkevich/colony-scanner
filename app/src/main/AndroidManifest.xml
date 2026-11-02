@@ -41,6 +41,11 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".JournalActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".ContentActivity"
             android:exported="false"
             android:screenOrientation="portrait"

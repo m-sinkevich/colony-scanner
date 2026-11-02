@@ -33,6 +33,8 @@ class ContentActivity : Activity() {
 
     companion object {
         private const val K_ID = "id"
+        /** Открыт из журнала сканирований — повторный просмотр. */
+        const val K_REVIEW = "review"
         fun intent(ctx: Context, id: String): Intent = Intent(ctx, ContentActivity::class.java).putExtra(K_ID, id)
     }
 

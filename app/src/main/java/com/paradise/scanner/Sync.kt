@@ -38,7 +38,8 @@ object Sync {
         val main = Handler(Looper.getMainLooper())
         Thread {
             try {
-                val r = doSync(app) { msg -> main.post { onProgress(msg) } }
+                // одна синхронизация за раз (фоновая и ручная из служебного меню)
+                val r = synchronized(this) { doSync(app) { msg -> main.post { onProgress(msg) } } }
                 main.post { onDone(r, null) }
             } catch (e: Exception) {
                 val msg = e.message ?: e.javaClass.simpleName
@@ -300,6 +301,8 @@ object Sync {
 
     private fun download(url: String, key: String, dir: File): String {
         val name = fileNameFor(url)
+        // уже скачан — не тратим сеть (у загружаемых файлов уникальные имена)
+        File(dir, name).let { if (it.exists() && it.length() > 0) return name }
         val c = open(url, key)
         try {
             val code = c.responseCode

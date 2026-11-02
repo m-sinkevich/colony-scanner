@@ -113,7 +113,7 @@ class LoginActivity : Activity() {
             gravity = Gravity.CENTER
             letterSpacing = 0.08f
             setPadding(0, dp(14), 0, 0)
-            setOnClickListener { if (!busy) SyncUi.show(this@LoginActivity) { refreshFooter() } }
+            setOnClickListener { AutoSync.now() }
         }
         root.addView(footer, lp())
         setContentView(spaceScreen(scroll, accent).first)
@@ -121,17 +121,20 @@ class LoginActivity : Activity() {
 
     private fun refreshFooter() {
         val db = Repo.get(this)
-        footer.text = if (db.people.isEmpty()) "◇ БАЗА НЕ ЗАГРУЖЕНА · ЗАГРУЗИТЬ ⟳" else "◇ ПЕРСОНАЖЕЙ В БАЗЕ ${db.people.size} · ОБНОВИТЬ ⟳"
+        footer.text = if (db.people.isEmpty()) "◇ НЕТ СВЯЗИ С РЕЕСТРОМ КОЛОНИИ · ПРОВЕРЬТЕ ИНТЕРНЕТ" else ""
     }
 
     override fun onResume() {
         super.onResume()
         refreshFooter()
+        AutoSync.onUpdated = { refreshFooter() }
+        AutoSync.resumed(this)
         NfcRead.enable(this, adapter) { r -> if (!busy) identify(r.candidates) }
     }
 
     override fun onPause() {
         super.onPause()
+        AutoSync.paused()
         NfcRead.disable(this, adapter)
     }
 
@@ -170,7 +173,8 @@ class LoginActivity : Activity() {
     private fun identify(texts: List<String>) {
         val db = Repo.get(this)
         if (db.people.isEmpty()) {
-            show("БАЗА НЕ ЗАГРУЖЕНА", "Подключитесь к интернету и нажмите «Загрузить» внизу экрана.", Pal.WARN)
+            show("НЕТ СВЯЗИ С РЕЕСТРОМ", "Подключитесь к интернету — данные колонии загрузятся сами.", Pal.WARN)
+            AutoSync.now()
             fx.fail(); return
         }
         val codes = Codes.candidates(texts)
