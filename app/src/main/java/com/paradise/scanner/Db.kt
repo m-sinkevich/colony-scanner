@@ -41,7 +41,8 @@ data class Person(
 /* ---------------- контент «Терминала колониста» (content_items) ---------------- */
 data class Block(val type: String, val md: String, val url: String?, val urls: List<String>, val caption: String, val style: String)
 data class Choice(val label: String, val next: String)
-data class Variant(val chars: List<String>, val mods: List<String>, val body: String, val blocks: List<Block>, val choices: List<Choice>?)
+data class Variant(val chars: List<String>, val mods: List<String>, val body: String, val blocks: List<Block>, val choices: List<Choice>?,
+                   val id: String = "", val price: Int = 0)
 
 class ContentItem(val raw: JSONObject) {
     val id: String = raw.optString("id")
@@ -58,7 +59,8 @@ class ContentItem(val raw: JSONObject) {
     val variants: List<Variant> = (raw.optJSONArray("variants") ?: JSONArray()).let { a ->
         (0 until a.length()).mapNotNull { i -> a.optJSONObject(i) }.map { v ->
             Variant(strs(v.optJSONArray("character_ids")), strs(v.optJSONArray("module_ids")), v.optString("body"),
-                blocksOf(v.optJSONArray("blocks")), if (v.has("choice_options") && !v.isNull("choice_options")) choicesOf(v.optJSONArray("choice_options")) else null)
+                blocksOf(v.optJSONArray("blocks")), if (v.has("choice_options") && !v.isNull("choice_options")) choicesOf(v.optJSONArray("choice_options")) else null,
+                v.optString("id", ""), v.optInt("price", 0))
         }
     }
 

@@ -28,6 +28,8 @@ class PayActivity : Activity() {
     private var item: ContentItem? = null
     private var person: Person? = null
     private var paid = 0
+    private var variant = ""
+    private var price = 0
     private var busy = false
     private val seen = HashSet<String>()
 
@@ -40,6 +42,7 @@ class PayActivity : Activity() {
         person = db.person(Prefs(this).characterId)
         val it = item; val p = person
         if (it == null || p == null) { finish(); return }
+        Access.energy(it, p).let { (v, pr) -> variant = v; price = pr }
         val accent = Look.accent
         val scroll = ScrollView(this).apply { isFillViewport = true }
         val root = column(18)
@@ -73,7 +76,6 @@ class PayActivity : Activity() {
     }
 
     private fun show() {
-        val price = item?.price ?: 0
         gems.text = (0 until price).joinToString(" ") { if (it < paid) "◆" else "◇" }
         count.text = "ЭНЕРГИЯ $paid ИЗ $price"
     }
@@ -103,14 +105,14 @@ class PayActivity : Activity() {
         busy = true
         say("◌ ПРОВЕРКА КРИСТАЛЛА $code…", Pal.DIM)
         Thread {
-            val r = try { Crystals.spend(applicationContext, code, p, it) } catch (e: Exception) { null }
+            val r = try { Crystals.spend(applicationContext, code, p, it, variant, price) } catch (e: Exception) { null }
             ui.post {
                 busy = false
                 if (isFinishing) return@post
                 when {
                     r == null -> { say("НЕТ СВЯЗИ С ЭНЕРГОСЕТЬЮ КОЛОНИИ\nЭнергию можно внести только при подключении к сети.", Pal.ERROR); fx?.fail() }
                     r.result == "ok" || r.result == "already_paid" -> {
-                        seen.add(code); paid = r.paid; show()
+                        seen.add(code); paid = r.paid; if (r.price > 0) price = r.price; show()
                         if (r.completed || r.result == "already_paid") {
                             fx?.success(); fx?.vibrate(60, 60, 160)
                             say("✓ ЭНЕРГИИ ДОСТАТОЧНО", Look.accent)

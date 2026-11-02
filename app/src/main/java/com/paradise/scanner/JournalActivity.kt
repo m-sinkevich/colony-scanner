@@ -59,7 +59,8 @@ class JournalActivity : Activity() {
             row.addView(label(it.title, 15f, Pal.TEXT, bold = true), lp().apply { topMargin = dp(3) })
             if (it.note.isNotBlank()) row.addView(label(it.note, 12f, Pal.DIM), lp().apply { topMargin = dp(2) })
             val item = db.content(it.contentId)
-            if (it.kind == "pay" && item != null && !Crystals.paid(this, me ?: "", item.id)) {
+            val meP = db.person(me)
+            if (it.kind == "pay" && item != null && meP != null && Access.energy(item, meP).let { (v, pr) -> pr > 0 && !Crystals.paid(this, meP.id, item.id, v) }) {
                 row.addView(label("› внести энергию кристаллов", 11f, accent), lp().apply { topMargin = dp(4) })
                 row.setOnClickListener { startActivity(PayActivity.intent(this, item.id)) }
             }

@@ -12,7 +12,7 @@ object Access {
         object Ok : Gate()
         data class Denied(val title: String, val message: String) : Gate()
         /** Платный объект: нужно внести кристаллы (один раз на персонажа). */
-        data class Pay(val price: Int) : Gate()
+        data class Pay(val price: Int, val variant: String) : Gate()
     }
 
     fun check(ctx: Context, item: ContentItem, p: Person): Gate {
@@ -39,8 +39,15 @@ object Access {
             "master_event" -> return Gate.Denied("ДОСТУП ОГРАНИЧЕН", "Этот объект разблокируется событием от мастера.")
             "silence_timeout" -> return Gate.Denied("ДОСТУП ОГРАНИЧЕН", "Этот объект активируется автоматически, не по сканированию.")
         }
-        if (item.price > 0 && !Crystals.paid(ctx, p.id, item.id)) return Gate.Pay(item.price)
+        val (variant, price) = energy(item, p)
+        if (price > 0 && !Crystals.paid(ctx, p.id, item.id, variant)) return Gate.Pay(price, variant)
         return Gate.Ok
+    }
+
+    /** Энергия кристаллов: у основной страницы ("") и у каждого варианта (его id) своя цена. */
+    fun energy(item: ContentItem, p: Person): Pair<String, Int> {
+        val v = variantFor(item, p)
+        return if (v != null) v.id to v.price else "" to item.price
     }
 
     /** Вариант страницы: сначала для персонажа, затем для его модуля. */

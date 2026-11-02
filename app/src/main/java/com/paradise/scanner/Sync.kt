@@ -213,7 +213,7 @@ object Sync {
             val arr = fetchAll(base, key, "content_payments", "character_id.asc")
             for (i in 0 until arr.length()) {
                 val x = arr.getJSONObject(i)
-                if (str(x, "completed_at").isNotBlank()) paid.add(str(x, "character_id") + "|" + str(x, "content_id"))
+                if (str(x, "completed_at").isNotBlank()) paid.add(str(x, "character_id") + "|" + str(x, "content_id") + "|" + str(x, "variant"))
             }
             val cr = fetchAll(base, key, "crystals", "code.asc")
             for (i in 0 until cr.length()) str(cr.getJSONObject(i), "code").uppercase().takeIf { it.isNotBlank() }?.let { crystals.add(it) }
@@ -229,8 +229,8 @@ object Sync {
             tmp.delete()
         }
         Repo.reload(ctx)
-        Store.purgeSent(ctx, progAt)
-        Crystals.clearLocal(ctx)   // отправленное теперь учтено в скачанном прогрессе
+        Store.purgeSent(ctx, progAt)   // отправленное теперь учтено в скачанном прогрессе
+        Crystals.clearLocal(ctx)       // энергия — как в базе (мастер мог её сбросить)
 
         // удаляем картинки, на которые больше никто не ссылается
         dir.listFiles()?.forEach { if (it.name !in usedFiles) it.delete() }

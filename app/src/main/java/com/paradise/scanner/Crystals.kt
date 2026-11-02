@@ -10,11 +10,11 @@ import org.json.JSONObject
 object Crystals {
     private fun sp(ctx: Context) = ctx.getSharedPreferences("crystals", Context.MODE_PRIVATE)
 
-    fun paid(ctx: Context, charId: String, contentId: String): Boolean =
-        "$charId|$contentId" in Repo.get(ctx).paid || sp(ctx).getBoolean("$charId|$contentId", false)
+    fun paid(ctx: Context, charId: String, contentId: String, variant: String): Boolean =
+        "$charId|$contentId|$variant" in Repo.get(ctx).paid || sp(ctx).getBoolean("$charId|$contentId|$variant", false)
 
-    fun markPaid(ctx: Context, charId: String, contentId: String) {
-        sp(ctx).edit().putBoolean("$charId|$contentId", true).apply()
+    fun markPaid(ctx: Context, charId: String, contentId: String, variant: String) {
+        sp(ctx).edit().putBoolean("$charId|$contentId|$variant", true).apply()
     }
 
     /** После загрузки базы с сервера локальные отметки не нужны: мастер мог сбросить энергию объекта. */
@@ -25,14 +25,14 @@ object Crystals {
     data class Result(val result: String, val paid: Int, val price: Int, val completed: Boolean)
 
     /** Списать кристалл за объект. Нет сети — исключение. Вызывать не из главного потока. */
-    fun spend(ctx: Context, code: String, p: Person, item: ContentItem): Result {
+    fun spend(ctx: Context, code: String, p: Person, item: ContentItem, variant: String, price: Int): Result {
         val body = JSONObject().put("p_code", code.trim().uppercase()).put("p_character", p.id).put("p_content", item.id)
-            .put("p_module", p.moduleId ?: JSONObject.NULL).put("p_source", "scanner")
+            .put("p_module", p.moduleId ?: JSONObject.NULL).put("p_source", "scanner").put("p_variant", variant)
         val o = JSONObject(Store.rpc(ctx, "spend_crystal", body))
-        val r = Result(o.optString("result"), o.optInt("paid"), o.optInt("price", item.price), o.optBoolean("completed"))
-        if (r.completed || r.result == "already_paid") markPaid(ctx, p.id, item.id)
+        val r = Result(o.optString("result"), o.optInt("paid"), o.optInt("price", price), o.optBoolean("completed"))
+        if (r.completed || r.result == "already_paid") markPaid(ctx, p.id, item.id, variant)
         Store.log(ctx, p, if (r.result == "ok") "crystal_spend" else "crystal_reject",
-            JSONObject().put("code", code.trim().uppercase()).put("contentId", item.id).put("result", r.result).put("paid", r.paid).put("price", r.price))
+            JSONObject().put("code", code.trim().uppercase()).put("contentId", item.id).put("variant", variant).put("result", r.result).put("paid", r.paid).put("price", r.price))
         Store.pushLater(ctx)
         return r
     }
