@@ -192,6 +192,7 @@ object Sync {
             if (local != null) { media[raw] = local; usedFiles.add(local) }
         }
         // прогресс персонажей (что уже открывали) — для «один раз» и таймеров
+        val progAt = System.currentTimeMillis()
         val prog = HashMap<String, Prog>()
         try {
             val arr = fetchAll(base, key, "character_progress", "character_id.asc")
@@ -212,6 +213,7 @@ object Sync {
             tmp.delete()
         }
         Repo.reload(ctx)
+        Store.purgeSent(ctx, progAt)   // отправленное теперь учтено в скачанном прогрессе
 
         // удаляем картинки, на которые больше никто не ссылается
         dir.listFiles()?.forEach { if (it.name !in usedFiles) it.delete() }

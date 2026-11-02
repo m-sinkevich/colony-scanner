@@ -77,3 +77,10 @@ alter table public.scan_settings enable row level security;
 drop policy if exists "scan_settings all" on public.scan_settings;
 create policy "scan_settings all" on public.scan_settings for all to anon, authenticated using (true) with check (true);
 insert into public.scan_settings (id) values (1) on conflict (id) do nothing;
+
+-- ================================================================
+--  Сканер v2: тип сканера у персонажа (medic | tech | sci). Пусто — «Доступ запрещён».
+--  Полная версия с расстановкой типов по персонажам — sql/scanner_v2.sql в репозитории paradise.
+-- ================================================================
+alter table characters add column if not exists scanner_mode text
+  check (scanner_mode is null or scanner_mode in ('medic', 'tech', 'sci'));

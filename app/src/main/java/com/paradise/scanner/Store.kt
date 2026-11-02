@@ -38,7 +38,20 @@ object Store {
         val a = read(ctx); a.put(ev.put("at", System.currentTimeMillis())); write(ctx, a)
     }
 
-    fun pending(ctx: Context): Int = synchronized(lock) { read(ctx).length() }
+    /** Сколько событий ещё не отправлено. */
+    fun pending(ctx: Context): Int = synchronized(lock) { val a = read(ctx); (0 until a.length()).count { !(a.optJSONObject(it)?.has("s") ?: true) } }
+
+    /**
+     * Отправленные события хранятся, пока не скачан свежий прогресс с сервера, — иначе «один раз»
+     * и таймеры на время между отправкой и обновлением базы «забыли» бы их. Вызывается после загрузки базы.
+     */
+    fun purgeSent(ctx: Context, before: Long) = synchronized(lock) {
+        val a = read(ctx); val rest = JSONArray()
+        for (i in 0 until a.length()) { val e = a.optJSONObject(i) ?: continue; if (!(e.has("s") && e.optLong("s") < before)) rest.put(e) }
+        write(ctx, rest)
+    }
+
+    private val pushLock = Any()
 
     /** Объект открыт персонажем (как recordProgress + лог content_open в терминале). */
     fun opened(ctx: Context, p: Person, item: ContentItem) {
@@ -77,12 +90,16 @@ object Store {
     /* ---------------- отправка ---------------- */
 
     /** Отправить накопленное. Возвращает число отправленных событий; при ошибке сети — исключение, очередь цела. */
-    fun push(ctx: Context): Int {
+    fun push(ctx: Context): Int = synchronized(pushLock) { pushNow(ctx) }
+
+    private fun pushNow(ctx: Context): Int {
         val prefs = Prefs(ctx)
         if (!prefs.hasServer) return 0
         val base = prefs.supabaseUrl.trim().trimEnd('/')
         val key = prefs.supabaseKey.trim()
-        val snapshot = synchronized(lock) { read(ctx) }
+        val all = synchronized(lock) { read(ctx) }
+        val snapshot = JSONArray()
+        for (i in 0 until all.length()) { val e = all.optJSONObject(i) ?: continue; if (!e.has("s")) snapshot.put(e) }
         val n = snapshot.length()
         if (n == 0) return 0
 
@@ -127,11 +144,16 @@ object Store {
             request(base, key, "PATCH", "content_items?id=eq.$id&viewed=is.false", JSONObject().put("viewed", true).put("viewed_at", iso(System.currentTimeMillis())).toString(), "return=minimal")
         } catch (e: Exception) { }
 
+        // отмечаем отправленными (по положению в очереди: новые события дописываются в конец)
         synchronized(lock) {
-            val now = read(ctx)
-            val rest = JSONArray()
-            for (k in n until now.length()) rest.put(now.get(k))
-            write(ctx, rest)
+            val now = read(ctx); val sentAt = System.currentTimeMillis()
+            var left = n
+            for (k in 0 until now.length()) {
+                if (left == 0) break
+                val e = now.optJSONObject(k) ?: continue
+                if (!e.has("s")) { e.put("s", sentAt); left-- }
+            }
+            write(ctx, now)
         }
         return n
     }
