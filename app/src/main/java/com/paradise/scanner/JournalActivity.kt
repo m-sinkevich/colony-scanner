@@ -47,6 +47,7 @@ class JournalActivity : Activity() {
                 "pay" -> "НУЖНА ЭНЕРГИЯ" to Pal.WARN
                 "paid" -> "ЭНЕРГИЯ ВНЕСЕНА" to accent
                 "crystal" -> "КРИСТАЛЛ" to accent
+                "channel" -> "КАНАЛ СВЯЗИ СОЗДАН" to accent
                 "wrong" -> "АНАЛИЗ НЕВОЗМОЖЕН" to Pal.WARN
                 else -> "НЕ ОПОЗНАН" to Pal.ERROR
             }

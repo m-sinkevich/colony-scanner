@@ -36,6 +36,9 @@ data class Person(
     val photo: String?,        // имя файла в локальном кэше
     val scannerMode: String? = null,   // medic | tech | sci; пусто — сканер ему недоступен
     val moduleId: String? = null,      // id модуля приписки — для «доступно в модулях»
+    val canChannels: Boolean = false,  // может создавать каналы связи
+    val hacker: Boolean = false,       // хакер: может создать скрытый канал
+    val channelPrice: Int = 0,         // цена канала в кристаллах
 )
 
 /* ---------------- контент «Терминала колониста» (content_items) ---------------- */
@@ -136,6 +139,7 @@ class Database(
     val progress: Map<String, Prog> = emptyMap(),          // "персонаж|объект" → прогресс на момент загрузки
     val paid: Set<String> = emptySet(),                    // "персонаж|объект" — оплачено кристаллами
     val crystals: Set<String> = emptySet(),                // коды кристаллов (чтобы узнать кристалл вне оплаты)
+    val modules: Map<String, String> = emptyMap(),          // модули колонии: id → название (для создания канала)
 ) {
     private val index = HashMap<String, Entry>()
     private val knownCodes = HashSet<String>()
@@ -204,6 +208,7 @@ class Database(
                 JSONObject().put("id", it.id).put("name", it.name).put("codes", JSONArray(it.codes))
                     .put("tagline", it.tagline).put("module", it.module).put("photo", it.photo ?: JSONObject.NULL)
                     .put("scanner_mode", it.scannerMode ?: JSONObject.NULL).put("module_id", it.moduleId ?: JSONObject.NULL)
+                    .put("can_channels", it.canChannels).put("hacker", it.hacker).put("channel_price", it.channelPrice)
             )
         }
         val ca = JSONArray(); contents.forEach { ca.put(it.raw) }
@@ -212,6 +217,7 @@ class Database(
         return JSONObject().put("updated_at", updatedAt).put("from_server", fromServer).put("modes", m).put("tags", t).put("people", pp)
             .put("contents", ca).put("media", md).put("progress", pr)
             .put("paid", JSONArray(paid.toList())).put("crystals", JSONArray(crystals.toList()))
+            .put("modules", JSONObject().also { o -> modules.forEach { (k, v) -> o.put(k, v) } })
     }
 
     companion object {
@@ -257,6 +263,9 @@ class Database(
                         photo = if (x.isNull("photo")) null else x.optString("photo").ifBlank { null },
                         scannerMode = if (x.isNull("scanner_mode")) null else x.optString("scanner_mode").ifBlank { null },
                         moduleId = if (x.isNull("module_id")) null else x.optString("module_id").ifBlank { null },
+                        canChannels = x.optBoolean("can_channels", false),
+                        hacker = x.optBoolean("hacker", false),
+                        channelPrice = x.optInt("channel_price", 0),
                     )
                 )
             }
@@ -269,7 +278,9 @@ class Database(
             o.optJSONObject("progress")?.let { pr -> pr.keys().forEach { k -> pr.optJSONObject(k)?.let { progress[k] = Prog(it.optInt("n"), it.optLong("f")) } } }
             val paid = o.optJSONArray("paid")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
             val crystals = o.optJSONArray("crystals")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
-            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress, paid, crystals)
+            val mods = HashMap<String, String>()
+            o.optJSONObject("modules")?.let { mo -> mo.keys().forEach { k -> mods[k] = mo.optString(k) } }
+            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress, paid, crystals, mods)
         }
     }
 }

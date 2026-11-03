@@ -164,6 +164,13 @@ object Store {
         Thread { try { push(app) } catch (e: Exception) { } }.start()
     }
 
+    /** GET-запрос к таблице (например crystals?select=code,spent_at&code=eq.X). Нужна сеть. */
+    fun get(ctx: Context, path: String): String {
+        val prefs = Prefs(ctx)
+        if (!prefs.hasServer) throw java.io.IOException("сервер не настроен")
+        return request(prefs.supabaseUrl.trim().trimEnd('/'), prefs.supabaseKey.trim(), "GET", path, null, null)
+    }
+
     /** Вызов функции базы (например spend_crystal). Нужна сеть: при ошибке — исключение. */
     fun rpc(ctx: Context, fn: String, body: JSONObject): String {
         val prefs = Prefs(ctx)

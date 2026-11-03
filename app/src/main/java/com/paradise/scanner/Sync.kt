@@ -129,8 +129,8 @@ object Sync {
 
         // персонажи: бейдж опознаётся сканером по своему коду (QR или NFC-метка с тем же текстом)
         progress("Загрузка персонажей…")
+        val moduleNames = HashMap<String, String>()
         val people: List<Person> = try {
-            val moduleNames = HashMap<String, String>()
             try {
                 val ma = fetchAll(base, key, "modules", "name.asc")
                 for (i in 0 until ma.length()) {
@@ -165,7 +165,9 @@ object Sync {
                     local?.let { usedFiles.add(it) }
                 }
                 list.add(Person(str(x, "id"), str(x, "name"), codes, str(x, "tagline"), moduleNames[moduleId] ?: "", local,
-                    str(x, "scanner_mode").ifBlank { null }, moduleId.ifBlank { null }))
+                    str(x, "scanner_mode").ifBlank { null }, moduleId.ifBlank { null },
+                    x.optBoolean("can_create_channels", false) || x.optBoolean("is_hacker", false), x.optBoolean("is_hacker", false),
+                    x.optInt("channel_price", 0)))
             }
             list
         } catch (e: HttpError) {
@@ -221,7 +223,8 @@ object Sync {
             if (e.code != 404 && e.code != 400) throw e
         }
 
-        val db = Database(modes, entries, people, System.currentTimeMillis(), true, contents, media, prog, paid, crystals)
+        val db = Database(modes, entries, people, System.currentTimeMillis(), true, contents, media, prog, paid, crystals,
+            moduleNames.ifEmpty { old.modules })
         val tmp = File(ctx.filesDir, "db.json.tmp")
         tmp.writeText(db.toJson().toString())
         if (!tmp.renameTo(Repo.dbFile(ctx))) {

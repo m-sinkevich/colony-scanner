@@ -55,6 +55,7 @@ class ScanActivity : Activity() {
     private lateinit var timer: TextView
     private lateinit var scanBtn: TextView
     private lateinit var qrBtn: TextView
+    private lateinit var chanBtn: TextView
     private lateinit var journalBtn: TextView
     private var pendingQr: TagRead? = null
     private lateinit var radar: RadarView
@@ -171,6 +172,11 @@ class ScanActivity : Activity() {
             visibility = if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) View.VISIBLE else View.GONE
         }
         if (qrBtn.visibility == View.VISIBLE) root.addView(qrBtn, lp().apply { topMargin = dp(10) })
+        // создание канала связи — только тем, у кого есть эта способность (видимость — в applyMode)
+        chanBtn = termButton("⌁  СОЗДАТЬ КАНАЛ СВЯЗИ", Pal.DEFAULT_ACCENT) {
+            if (!analyzing) { if (sessionActive) stopAll(); startActivity(android.content.Intent(this, ChannelActivity::class.java)) }
+        }.apply { setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f); val pd = dp(10); setPadding(pd, pd, pd, pd); visibility = View.GONE }
+        root.addView(chanBtn, lp().apply { topMargin = dp(8) })
 
         // --- радар ---
         radar = RadarView(this)
@@ -219,6 +225,8 @@ class ScanActivity : Activity() {
         qrBtn.text = Look.opticLabel
         styleButton(qrBtn, c, filled = false)
         styleButton(journalBtn, c, filled = false)
+        chanBtn.visibility = if (p != null && p.canChannels) View.VISIBLE else View.GONE
+        styleButton(chanBtn, c, filled = false)
     }
 
     private fun refreshFooter() { /* сведения о базе игроку не показываются */ }
