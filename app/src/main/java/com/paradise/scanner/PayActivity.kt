@@ -110,7 +110,7 @@ class PayActivity : Activity() {
                 busy = false
                 if (isFinishing) return@post
                 when {
-                    r == null -> { say("НЕТ СВЯЗИ С ЭНЕРГОСЕТЬЮ КОЛОНИИ\nЭнергию можно внести только при подключении к сети.", Pal.ERROR); fx?.fail() }
+                    r == null -> { say("ЭНЕРГОСЕТЬ КОЛОНИИ НЕ ОТВЕЧАЕТ\nПопробуйте ещё раз.", Pal.ERROR); fx?.fail() }
                     r.result == "ok" || r.result == "already_paid" -> {
                         seen.add(code); paid = r.paid; if (r.price > 0) price = r.price; show()
                         if (r.completed || r.result == "already_paid") {

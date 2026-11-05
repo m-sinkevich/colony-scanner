@@ -32,6 +32,20 @@ object Store {
         if (!tmp.renameTo(file(ctx))) { file(ctx).writeText(a.toString()); tmp.delete() }
     }
 
+    /** Сервер ответил ошибкой (в отличие от «нет сети»). */
+    class HttpFail(val code: Int, msg: String) : java.io.IOException(msg)
+
+    /** Оплата кристаллом без сети — дослать при появлении сети (spend_crystal_offline, sql/offline.sql). */
+    fun spendOffline(ctx: Context, p: Person, item: ContentItem, variant: String, code: String) {
+        add(ctx, JSONObject().put("k", "spend").put("c", p.id).put("i", item.id).put("v", variant).put("code", code)
+            .put("m", p.moduleId ?: JSONObject.NULL))
+    }
+
+    /** Есть ли недосланные оплаты без сети. */
+    fun pendingSpends(ctx: Context): Boolean = synchronized(lock) {
+        val a = read(ctx); (0 until a.length()).any { val e = a.optJSONObject(it); e != null && !e.has("s") && e.optString("k") == "spend" }
+    }
+
     fun iso(ms: Long): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date(ms))
 
     private fun add(ctx: Context, ev: JSONObject) = synchronized(lock) {
@@ -126,6 +140,29 @@ object Store {
                 }
             }
         }
+        var spendsSent = 0
+        // оплаты кристаллами без сети: засчитываются всегда, повтор кристалла сервер пишет в журнал (crystal_conflict)
+        for (i in 0 until n) {
+            val e = snapshot.optJSONObject(i) ?: continue
+            if (e.optString("k") != "spend") continue
+            val body = JSONObject().put("p_code", e.optString("code")).put("p_character", e.optString("c")).put("p_content", e.optString("i"))
+                .put("p_module", if (e.isNull("m")) JSONObject.NULL else e.optString("m")).put("p_source", "scanner")
+                .put("p_variant", e.optString("v")).put("p_at", iso(e.optLong("at")))
+            try { request(base, key, "POST", "rpc/spend_crystal_offline", body.toString(), null) }
+            catch (x: HttpFail) {
+                if (x.code == 404) { body.remove("p_at"); request(base, key, "POST", "rpc/spend_crystal", body.toString(), null) } else throw x
+            }
+            // сразу отмечаем отправленной — чтобы при обрыве посреди досылки не заплатить дважды
+            synchronized(lock) {
+                val now = read(ctx)
+                for (k in 0 until now.length()) {
+                    val q = now.optJSONObject(k) ?: continue
+                    if (!q.has("s") && q.optString("k") == "spend" && q.optLong("at") == e.optLong("at") && q.optString("code") == e.optString("code")) { q.put("s", System.currentTimeMillis()); break }
+                }
+                write(ctx, now)
+            }
+            spendsSent++
+        }
         if (logs.length() > 0) request(base, key, "POST", "logs", logs.toString(), "return=minimal")
         for ((pair, a) in acc) {
             val (c, i) = pair
@@ -147,7 +184,7 @@ object Store {
         // отмечаем отправленными (по положению в очереди: новые события дописываются в конец)
         synchronized(lock) {
             val now = read(ctx); val sentAt = System.currentTimeMillis()
-            var left = n
+            var left = n - spendsSent
             for (k in 0 until now.length()) {
                 if (left == 0) break
                 val e = now.optJSONObject(k) ?: continue
@@ -195,7 +232,7 @@ object Store {
             }
             val code = c.responseCode
             val txt = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
-            if (code !in 200..299) throw java.io.IOException("HTTP $code $path: ${txt.take(160)}")
+            if (code !in 200..299) throw HttpFail(code, "HTTP $code $path: ${txt.take(160)}")
             return txt.ifBlank { "[]" }
         } finally {
             c.disconnect()

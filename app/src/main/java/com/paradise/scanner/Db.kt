@@ -141,6 +141,8 @@ class Database(
     val crystals: Set<String> = emptySet(),                // коды кристаллов (чтобы узнать кристалл вне оплаты)
     val modules: Map<String, String> = emptyMap(),          // модули колонии: id → название (для создания канала)
     val masterModules: Set<String> = emptySet(),            // мастерские терминалы («Центр управления»)
+    val spentCrystals: Set<String> = emptySet(),            // коды уже потраченных кристаллов (для оплаты без сети)
+    val payCounts: Map<String, Int> = emptyMap(),           // "персонаж|объект|вариант" → сколько энергии уже внесено
 ) {
     private val index = HashMap<String, Entry>()
     private val knownCodes = HashSet<String>()
@@ -220,6 +222,8 @@ class Database(
             .put("paid", JSONArray(paid.toList())).put("crystals", JSONArray(crystals.toList()))
             .put("modules", JSONObject().also { o -> modules.forEach { (k, v) -> o.put(k, v) } })
             .put("master_modules", JSONArray(masterModules.toList()))
+            .put("spent_crystals", JSONArray(spentCrystals.toList()))
+            .put("pay_counts", JSONObject().also { o -> payCounts.forEach { (k, v) -> o.put(k, v) } })
     }
 
     companion object {
@@ -283,7 +287,10 @@ class Database(
             val mods = HashMap<String, String>()
             o.optJSONObject("modules")?.let { mo -> mo.keys().forEach { k -> mods[k] = mo.optString(k) } }
             val masters = o.optJSONArray("master_modules")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
-            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress, paid, crystals, mods, masters)
+            val spent = o.optJSONArray("spent_crystals")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
+            val counts = HashMap<String, Int>()
+            o.optJSONObject("pay_counts")?.let { pc -> pc.keys().forEach { k -> counts[k] = pc.optInt(k) } }
+            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress, paid, crystals, mods, masters, spent, counts)
         }
     }
 }

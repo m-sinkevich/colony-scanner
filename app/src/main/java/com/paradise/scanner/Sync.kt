@@ -226,20 +226,29 @@ object Sync {
         // оплаты кристаллами и коды кристаллов (sql/crystals.sql; нет таблиц — пропускаем)
         val paid = HashSet<String>()
         val crystals = HashSet<String>()
+        val spentCrystals = HashSet<String>()
+        val payCounts = HashMap<String, Int>()
         try {
             val arr = fetchAll(base, key, "content_payments", "character_id.asc")
             for (i in 0 until arr.length()) {
                 val x = arr.getJSONObject(i)
-                if (str(x, "completed_at").isNotBlank()) paid.add(str(x, "character_id") + "|" + str(x, "content_id") + "|" + str(x, "variant"))
+                val pk = str(x, "character_id") + "|" + str(x, "content_id") + "|" + str(x, "variant")
+                if (str(x, "completed_at").isNotBlank()) paid.add(pk)
+                payCounts[pk] = x.optInt("paid", 0)
             }
             val cr = fetchAll(base, key, "crystals", "code.asc")
-            for (i in 0 until cr.length()) str(cr.getJSONObject(i), "code").uppercase().takeIf { it.isNotBlank() }?.let { crystals.add(it) }
+            for (i in 0 until cr.length()) {
+                val x = cr.getJSONObject(i)
+                val c = str(x, "code").uppercase().takeIf { it.isNotBlank() } ?: continue
+                crystals.add(c)
+                if (str(x, "spent_at").isNotBlank()) spentCrystals.add(c)
+            }
         } catch (e: HttpError) {
             if (e.code != 404 && e.code != 400) throw e
         }
 
         val db = Database(modes, entries, people, System.currentTimeMillis(), true, contents, media, prog, paid, crystals,
-            moduleNames.ifEmpty { old.modules }, if (moduleNames.isEmpty()) old.masterModules else masterModules)
+            moduleNames.ifEmpty { old.modules }, if (moduleNames.isEmpty()) old.masterModules else masterModules, spentCrystals, payCounts)
         val tmp = File(ctx.filesDir, "db.json.tmp")
         tmp.writeText(db.toJson().toString())
         if (!tmp.renameTo(Repo.dbFile(ctx))) {
