@@ -178,9 +178,22 @@ object Sync {
         progress("Загрузка контента…")
         val contents = ArrayList<ContentItem>()
         val media = HashMap<String, String>()
-        try {
+        // экономия трафика: сначала лёгкая сверка «id + время изменения»; весь контент качаем,
+        // только если что-то изменилось (или прошло больше 30 минут — на всякий случай)
+        val sig: String? = try {
+            val a = fetchAll(base, key, "content_items", "id.asc", "id,updated_at")
+            val sb = StringBuilder().append(a.length())
+            for (i in 0 until a.length()) a.optJSONObject(i)?.let { sb.append('|').append(it.optString("id")).append(':').append(it.optString("updated_at")) }
+            sb.toString().hashCode().toString() + "/" + a.length()
+        } catch (e: Exception) { null }
+        val fresh = System.currentTimeMillis() - prefs.contentAt < 30 * 60 * 1000L
+        if (sig != null && sig == prefs.contentSig && fresh && old.contents.isNotEmpty()) {
+            contents.addAll(old.contents)
+        } else try {
             val arr = fetchAll(base, key, "content_items", "trigger_code.asc")
             for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { contents.add(ContentItem(it)) }
+            prefs.contentSig = sig ?: ""
+            prefs.contentAt = System.currentTimeMillis()
         } catch (e: HttpError) {
             if (e.code != 404 && e.code != 400) throw e
         }
@@ -349,11 +362,11 @@ object Sync {
         return c
     }
 
-    private fun fetchAll(base: String, key: String, table: String, order: String): JSONArray {
+    private fun fetchAll(base: String, key: String, table: String, order: String, select: String = "*"): JSONArray {
         val all = JSONArray()
         var offset = 0
         while (true) {
-            val url = "$base/rest/v1/$table?select=*&order=$order&limit=$PAGE&offset=$offset"
+            val url = "$base/rest/v1/$table?select=$select&order=$order&limit=$PAGE&offset=$offset"
             val c = open(url, key)
             c.setRequestProperty("Accept", "application/json")
             val page: JSONArray

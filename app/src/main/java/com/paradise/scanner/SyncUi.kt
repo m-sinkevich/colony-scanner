@@ -17,6 +17,7 @@ object SyncUi {
                 .show()
             return
         }
+        prefs.contentSig = ""   // ручное обновление мастером — всегда полная загрузка контента
         val text = activity.label("Подключение…", 13f, Pal.TEXT)
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL

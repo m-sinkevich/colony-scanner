@@ -28,6 +28,14 @@ class Prefs(ctx: Context) {
         set(v) = p.edit().putString("pin", v.trim()).apply()
 
     /** Последние считанные с метки коды — мастер видит их в служебном меню. */
+    /** Отпечаток контента при последней полной загрузке и её время — чтобы не качать неизменённое. */
+    var contentSig: String
+        get() = p.getString("content_sig", "") ?: ""
+        set(v) = p.edit().putString("content_sig", v).apply()
+    var contentAt: Long
+        get() = p.getLong("content_at", 0L)
+        set(v) = p.edit().putLong("content_at", v).apply()
+
     var lastCodes: String
         get() = p.getString("last_codes", "") ?: ""
         set(v) = p.edit().putString("last_codes", v).apply()
