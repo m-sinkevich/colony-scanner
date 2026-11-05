@@ -140,6 +140,7 @@ class Database(
     val paid: Set<String> = emptySet(),                    // "персонаж|объект" — оплачено кристаллами
     val crystals: Set<String> = emptySet(),                // коды кристаллов (чтобы узнать кристалл вне оплаты)
     val modules: Map<String, String> = emptyMap(),          // модули колонии: id → название (для создания канала)
+    val masterModules: Set<String> = emptySet(),            // мастерские терминалы («Центр управления»)
 ) {
     private val index = HashMap<String, Entry>()
     private val knownCodes = HashSet<String>()
@@ -218,6 +219,7 @@ class Database(
             .put("contents", ca).put("media", md).put("progress", pr)
             .put("paid", JSONArray(paid.toList())).put("crystals", JSONArray(crystals.toList()))
             .put("modules", JSONObject().also { o -> modules.forEach { (k, v) -> o.put(k, v) } })
+            .put("master_modules", JSONArray(masterModules.toList()))
     }
 
     companion object {
@@ -280,7 +282,8 @@ class Database(
             val crystals = o.optJSONArray("crystals")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
             val mods = HashMap<String, String>()
             o.optJSONObject("modules")?.let { mo -> mo.keys().forEach { k -> mods[k] = mo.optString(k) } }
-            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress, paid, crystals, mods)
+            val masters = o.optJSONArray("master_modules")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
+            return Database(modes, entries, people, o.optLong("updated_at", 0L), o.optBoolean("from_server", false), contents, media, progress, paid, crystals, mods, masters)
         }
     }
 }

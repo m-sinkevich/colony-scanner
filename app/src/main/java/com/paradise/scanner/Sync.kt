@@ -130,12 +130,14 @@ object Sync {
         // персонажи: бейдж опознаётся сканером по своему коду (QR или NFC-метка с тем же текстом)
         progress("Загрузка персонажей…")
         val moduleNames = HashMap<String, String>()
+        val masterModules = HashSet<String>()
         val people: List<Person> = try {
             try {
                 val ma = fetchAll(base, key, "modules", "name.asc")
                 for (i in 0 until ma.length()) {
                     val x = ma.getJSONObject(i)
                     moduleNames[x.optString("id")] = x.optString("name")
+                    if (x.optBoolean("is_master_terminal", false)) masterModules.add(x.optString("id"))
                 }
             } catch (e: HttpError) { /* без модулей — просто без подписи */ }
             val arr = fetchAll(base, key, "characters", "name.asc")
@@ -237,7 +239,7 @@ object Sync {
         }
 
         val db = Database(modes, entries, people, System.currentTimeMillis(), true, contents, media, prog, paid, crystals,
-            moduleNames.ifEmpty { old.modules })
+            moduleNames.ifEmpty { old.modules }, if (moduleNames.isEmpty()) old.masterModules else masterModules)
         val tmp = File(ctx.filesDir, "db.json.tmp")
         tmp.writeText(db.toJson().toString())
         if (!tmp.renameTo(Repo.dbFile(ctx))) {
