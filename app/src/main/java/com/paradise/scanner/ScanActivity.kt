@@ -56,6 +56,7 @@ class ScanActivity : Activity() {
     private lateinit var scanBtn: TextView
     private lateinit var qrBtn: TextView
     private lateinit var chanBtn: TextView
+    private lateinit var centerBtn: TextView
     private lateinit var journalBtn: TextView
     private var pendingQr: TagRead? = null
     private lateinit var radar: RadarView
@@ -177,6 +178,11 @@ class ScanActivity : Activity() {
             if (!analyzing) { if (sessionActive) stopAll(); startActivity(android.content.Intent(this, ChannelActivity::class.java)) }
         }.apply { setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f); val pd = dp(10); setPadding(pd, pd, pd, pd); visibility = View.GONE }
         root.addView(chanBtn, lp().apply { topMargin = dp(8) })
+        // канал по умолчанию — связь с центром управления (мастерами), есть у каждого оператора
+        centerBtn = termButton("✉  ЦЕНТР УПРАВЛЕНИЯ", Pal.DEFAULT_ACCENT) {
+            if (!analyzing) { if (sessionActive) stopAll(); startActivity(android.content.Intent(this, CenterActivity::class.java)) }
+        }.apply { setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f); val pd = dp(10); setPadding(pd, pd, pd, pd); visibility = View.GONE }
+        root.addView(centerBtn, lp().apply { topMargin = dp(8) })
 
         // --- радар ---
         radar = RadarView(this)
@@ -227,6 +233,8 @@ class ScanActivity : Activity() {
         styleButton(journalBtn, c, filled = false)
         chanBtn.visibility = if (p != null && p.canChannels) View.VISIBLE else View.GONE
         styleButton(chanBtn, c, filled = false)
+        centerBtn.visibility = if (p != null) View.VISIBLE else View.GONE
+        styleButton(centerBtn, c, filled = false)
     }
 
     private fun refreshFooter() { /* сведения о базе игроку не показываются */ }

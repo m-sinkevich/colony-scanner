@@ -215,6 +215,13 @@ object Store {
         return request(prefs.supabaseUrl.trim().trimEnd('/'), prefs.supabaseKey.trim(), "POST", "rpc/$fn", body.toString(), null)
     }
 
+    /** Запись в таблицу (POST/PATCH). Нужна сеть: при ошибке — исключение. */
+    fun send(ctx: Context, method: String, path: String, body: String): String {
+        val prefs = Prefs(ctx)
+        if (!prefs.hasServer) throw java.io.IOException("сервер не настроен")
+        return request(prefs.supabaseUrl.trim().trimEnd('/'), prefs.supabaseKey.trim(), method, path, body, "return=minimal")
+    }
+
     private fun request(base: String, key: String, method: String, path: String, body: String?, prefer: String?): String {
         val c = URL("$base/rest/v1/$path").openConnection() as HttpURLConnection
         try {
